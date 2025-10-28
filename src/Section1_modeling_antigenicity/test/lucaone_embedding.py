@@ -1,0 +1,228 @@
+import sys
+sys.path.append('../../')
+from model_001 import LucaQuadruple_final_dropout, fluProfiler_Config
+from tqdm import tqdm
+import os
+import torch
+import pandas as pd
+import torch.nn.functional as F
+import numpy as np
+from utilities import load_embedding, EarlyStopping
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+from scipy.stats import pearsonr, spearmanr
+from torch.utils.data import Dataset, DataLoader
+from torch.optim import AdamW
+from transformers import get_linear_schedule_with_warmup
+from datetime import datetime
+import pickle
+from utilities import print_exams
+
+class fluProfiler_Dataset(Dataset):
+    def __init__(self, DataFrame):
+        self.emb_file_name_a = ('matrix_' + DataFrame['seq_id_a']).tolist()
+        self.emb_file_name_b = ('matrix_' + DataFrame['seq_id_b']).tolist()
+        self.emb_file_name_c = ('matrix_' + DataFrame['seq_id_c']).tolist()
+        self.emb_file_name_d = ('matrix_' + DataFrame['seq_id_d']).tolist()
+
+        self.strainPassCats = convert_Pass2tensor(('<cls>' + DataFrame['serumPassCat'] + '<eos>' + DataFrame['virusPassCat'] + '<eos>').tolist())
+
+        self.labels = torch.tensor(DataFrame['label'].tolist())
+    
+    def __len__(self):
+        return len(self.labels)
+    
+    def __getitem__(self, idx):
+        return self.emb_file_name_a[idx], self.emb_file_name_b[idx], self.emb_file_name_c[idx], self.emb_file_name_d[idx], \
+               self.strainPassCats[idx], self.labels[idx]
+
+def convert_Pass2tensor(pass_cats):
+    result = [
+        item.replace('<cls>', '0').replace('<eos>', '1').replace('<EGG>', '2').replace('<CELL>', '3').replace('<BOTH>', '4')
+        for item in pass_cats
+    ]
+    result = torch.tensor([[int(number) for number in [char for char in item]] for item in result])
+    return result
+
+def list2df(mylist, period):
+    merged_rows = []
+    for i in range(0, len(mylist), period):
+        merged_row = []
+        for j in range(period):
+            merged_row += mylist[i + j]
+        merged_rows.append(merged_row)
+
+    return pd.DataFrame(merged_rows)
+
+def generate_matrix(matrix_list):
+    seq_len = [mat.shape[0] for mat in matrix_list]
+    max_len = max(seq_len)
+    mask_list = []
+    for i in range(len(matrix_list)): 
+        matrix_list[i] = F.pad(matrix_list[i], (0, 0, 0, max_len - seq_len[i]))
+        mask = torch.concat((torch.ones(1,seq_len[i]),torch.zeros(1,max_len-seq_len[i])),axis=1)
+        mask_list.append(mask)
+    matrix = torch.stack(matrix_list)
+    mask = torch.stack(mask_list).view(len(matrix_list),max_len)
+    return matrix, mask
+
+device = torch.device('cuda:1')
+group_columns = ['seq_a', 'seq_b', 'seq_c', 'seq_d', 'serumPassCat', 'virusPassCat']
+new_columns = ['seq_id_a', 'seq_id_b', 'seq_id_c', 'seq_id_d','seq_a', 'seq_b', 'seq_c', 'seq_d', 
+               'serumPassCat', 'virusPassCat', 'serumName', 'virusName', 'label']
+data_path = '/data/chenyihao/dataset'
+
+Crick_all = pd.read_csv(data_path + '/all.csv')
+dataframe = Crick_all.groupby(group_columns).agg({'seq_id_a': 'first', 'seq_id_b': 'first', 'seq_id_c': 'first', 'seq_id_d': 'first',
+                                                  'seq_type_a': 'first', 'seq_type_b': 'first', 'seq_type_c': 'first', 'seq_type_d': 'first',
+                                                  'serumName': 'first', 'virusName': 'first', 'label': 'mean'}).reset_index()
+Crick_all_final = dataframe[new_columns]
+
+Artificial_all = pd.read_csv(data_path + '/Artificial_data.csv')
+dataframe = Artificial_all.groupby(group_columns).agg({'seq_id_a': 'first', 'seq_id_b': 'first', 'seq_id_c': 'first', 'seq_id_d': 'first',
+                                                       'label': 'mean'}).reset_index()
+
+Crick_H1N1 = pd.read_excel('../../../data/raw/data4model(Crick-H1N1).xlsx')
+Crick_H3N2 = pd.read_excel('../../../data/raw/data4model(Crick-H3N2).xlsx')
+Crick_serumType = pd.concat([Crick_H1N1,Crick_H3N2])[['virusName', 'serumType']].drop_duplicates(subset=['virusName']).reset_index(drop=True)
+Crick_all_final = Crick_all_final.merge(right=Crick_serumType,how='left', left_on='virusName', right_on='virusName')
+
+train_data, test_data = train_test_split(Crick_all_final, test_size=0.1, random_state=42)
+train_data, valid_data = train_test_split(train_data, test_size=1/9, random_state=42)
+train_data = pd.concat([train_data, Artificial_all], axis=0)
+
+train_dataset = fluProfiler_Dataset(train_data)
+valid_dataset = fluProfiler_Dataset(valid_data)
+test_dataset = fluProfiler_Dataset(test_data)
+
+batch_size = 8
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+valid_dataloader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
+test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+import os
+from tqdm import tqdm
+
+embedding_df = pd.concat([train_data, valid_data, test_data],axis=0)
+# load embedding
+sequence_names = pd.concat([embedding_df['seq_id_a'],embedding_df['seq_id_b'],
+                            embedding_df['seq_id_c'],embedding_df['seq_id_d']]).unique().tolist()
+sequence_names = ['matrix_' + item + '.pt' for item in sequence_names]
+IDs, embeddings = load_embedding("/data/chenyihao/embedding_lucaone_prot", files=sequence_names)
+emb_dict = dict(zip(IDs, embeddings))
+
+
+import json
+with open('./config_dict.json', 'r') as f:
+    config_dict = json.load(f)
+with open("./args.pkl", "rb") as file:
+    fluProfiler_args = pickle.load(file)
+
+
+fluProfiler_config = fluProfiler_Config.from_dict(config_dict)
+model = LucaQuadruple_final_dropout(config=fluProfiler_config, args=fluProfiler_args)
+model.to(device)
+
+no_decay = ["bias", "layernorm.weight", "layer_norm.weight", "layer.norm.weight"]
+optimizer_grouped_parameters = [{
+            "params": [p for n, p in model.named_parameters() if not any(nd in n.lower() for nd in no_decay)],
+            "weight_decay": fluProfiler_args.weight_decay
+        },
+        {
+            "params": [p for n, p in model.named_parameters() if any(nd in n.lower() for nd in no_decay)],
+            "weight_decay": 0.0
+        }
+    ]
+optimizer = AdamW(optimizer_grouped_parameters,
+                    lr=0.00008,
+                    betas=[fluProfiler_args.beta1 if fluProfiler_args.beta1 > 0 else 0.9, fluProfiler_args.beta2 if fluProfiler_args.beta2 > 0 else 0.98],
+                    eps=fluProfiler_args.adam_epsilon)
+
+epochs = 100
+
+num_training_steps = len(train_dataloader) * epochs
+progress_bar = tqdm(range(num_training_steps)) 
+early_stopping = EarlyStopping(patience=6, save_dir='../../../trained_model/1.6_lucaone_prot/')
+
+for epoch in range(epochs):
+    model.train()
+    loss_ls = []
+    for batch in train_dataloader:
+        emb_file_name_a, emb_file_name_b, emb_file_name_c, emb_file_name_d, strainPassCats, labels = batch
+
+        matrixs_a, masks_a = generate_matrix([emb_dict[key] for key in emb_file_name_a])
+        matrixs_b, masks_b = generate_matrix([emb_dict[key] for key in emb_file_name_b])
+        matrixs_c, masks_c = generate_matrix([emb_dict[key] for key in emb_file_name_c])
+        matrixs_d, masks_d = generate_matrix([emb_dict[key] for key in emb_file_name_d])
+        
+        matrixs_a, matrixs_b, matrixs_c, matrixs_d = matrixs_a.to(device), matrixs_b.to(device), matrixs_c.to(device), matrixs_d.to(device)
+        masks_a = masks_a.to(device)
+        masks_b = masks_b.to(device)
+        masks_c = masks_c.to(device)
+        masks_d = masks_d.to(device)
+
+        strainPassCats = strainPassCats.to(device)
+
+        labels = labels.to(device)
+        
+        loss, logits, output = model(matrices_a=matrixs_a, matrices_b=matrixs_b, matrices_c=matrixs_c, matrices_d=matrixs_d, 
+                                     matrix_attention_masks_a=masks_a, matrix_attention_masks_b=masks_b, 
+                                     matrix_attention_masks_c=masks_c, matrix_attention_masks_d=masks_d, 
+                                     strainPassCats=strainPassCats, labels=labels)
+    
+        loss.backward()
+        loss_ls.append(loss.item())
+        optimizer.step()
+        optimizer.zero_grad()
+        progress_bar.update(1)
+    train_loss = np.mean(loss_ls)
+    print('train loss :', train_loss)
+
+    prediction_ls = []
+    reference_ls = []
+    logits_ls = []
+    loss_ls_valid = []
+    model.eval()
+    for batch in valid_dataloader:
+        emb_file_name_a, emb_file_name_b, emb_file_name_c, emb_file_name_d, strainPassCats, labels = batch
+        
+        matrixs_a, masks_a = generate_matrix([emb_dict[key] for key in emb_file_name_a])
+        matrixs_b, masks_b = generate_matrix([emb_dict[key] for key in emb_file_name_b])
+        matrixs_c, masks_c = generate_matrix([emb_dict[key] for key in emb_file_name_c])
+        matrixs_d, masks_d = generate_matrix([emb_dict[key] for key in emb_file_name_d])
+
+        matrixs_a, matrixs_b, matrixs_c, matrixs_d = matrixs_a.to(device), matrixs_b.to(device), matrixs_c.to(device), matrixs_d.to(device)
+        masks_a = masks_a.to(device)
+        masks_b = masks_b.to(device)
+        masks_c = masks_c.to(device)
+        masks_d = masks_d.to(device)
+
+        strainPassCats = strainPassCats.to(device)
+
+        labels = labels.to(device)
+        with torch.no_grad():
+            loss, logits, output = model(matrices_a=matrixs_a, matrices_b=matrixs_b, matrices_c=matrixs_c, 
+                                         matrices_d=matrixs_d, matrix_attention_masks_a=masks_a, matrix_attention_masks_b=masks_b, 
+                                         matrix_attention_masks_c=masks_c, matrix_attention_masks_d=masks_d, strainPassCats=strainPassCats, 
+                                         labels=labels)
+    
+        loss_ls_valid.append(loss.item())
+        logits_ls.append(logits.tolist())
+        prediction_ls = prediction_ls + output.view(-1).tolist()
+        reference_ls = reference_ls + labels.tolist()
+
+    print_exams(reference_ls, prediction_ls)
+    valid_MAE = mean_absolute_error(reference_ls, prediction_ls)
+    valid_mse = mean_squared_error(reference_ls, prediction_ls)
+    valid_pearson = pearsonr(reference_ls, prediction_ls).statistic
+    valid_spearman = spearmanr(reference_ls, prediction_ls).statistic
+
+    early_stopping(valid_mse, model)
+    if early_stopping.early_stop:
+        print("Early stopping")
+        break
+    
+    ## 将epoch信息写入log.txt
+    with open('../../../trained_model/1.6_lucaone_prot/log.txt', 'a') as f:
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        f.write(f"[{current_time}] Epoch {epoch + 1}/{epochs}, train loss: {train_loss:.4f}, valid MAE: {valid_MAE:.4f}, valid MSE: {valid_mse:.4f}, valid Pearson: {valid_pearson:.4f}, valid Spearman: {valid_spearman:.4f}\n")

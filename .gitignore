@@ -1,0 +1,10 @@
+/trained_model/
+/data/
+/model/
+/dataset/
+/Figure/
+*.pkl
+*.csv
+*.npy
+__pycache__/
+.ipynb_checkpoints/
