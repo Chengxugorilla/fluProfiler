@@ -231,3 +231,15 @@ def generate_matrix(matrix_list):
     matrix = torch.stack(matrix_list)
     mask = torch.stack(mask_list).view(len(matrix_list), max_len)
     return matrix, mask
+
+def split_data_by_strain(dataframe, identity_cols, frac):
+    strains = dataframe[identity_cols].drop_duplicates().reset_index(drop=True)
+    test_strains = strains.sample(frac=frac, random_state=42).reset_index(drop=True)
+    test_strains_set = set(zip(*test_strains[identity_cols].values.T))
+
+    mask = dataframe[identity_cols].apply(
+        lambda row: tuple(row) in test_strains_set, axis=1)
+    test_data = dataframe[mask]
+    train_data = dataframe[~mask]
+
+    return train_data, test_data
