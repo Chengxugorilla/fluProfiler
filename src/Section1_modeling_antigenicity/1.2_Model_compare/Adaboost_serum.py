@@ -53,7 +53,7 @@ SEED = 100
 random.seed(SEED)
 np.random.seed(SEED) 
 diff_columns = 'seq_diff_ohe'
-Crick_train = pd.read_csv('/mnt/zzbnew/peixunban/chenyihao/fluProfiler_source/data/data_40/serum/train.csv', index_col=False)
+Crick_train = pd.read_csv('../../../data/data_40/serum/train.csv', index_col=False)
 Crick_train[diff_columns] = Crick_train[diff_columns].apply(ast.literal_eval)
-run_one_subtype(full_df=Crick_train, subtype='H1N1',save_path='./Adaboost_H1N1_serum.pkl', diff_col=diff_columns)
-run_one_subtype(full_df=Crick_train, subtype='H3N2',save_path='./Adaboost_H3N2_serum.pkl', diff_col=diff_columns)
+run_one_subtype(full_df=Crick_train, subtype='H1N1',save_path='../../../trained_model/Adaboost/Adaboost_H1N1_serum_new.pkl', diff_col=diff_columns)
+run_one_subtype(full_df=Crick_train, subtype='H3N2',save_path='../../../trained_model/Adaboost/Adaboost_H3N2_serum_new.pkl', diff_col=diff_columns)
