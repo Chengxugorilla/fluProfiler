@@ -151,6 +151,51 @@ def load_embedding(path, files=None, map_location=None):
     emb_dict = dict(zip(IDs, embeddings))
     return emb_dict
 
+# def load_embedding(path, files=None, device=None):
+#     """
+#     从给定目录加载 .pt 文件（内部内容为 numpy.ndarray），
+#     转成 torch.Tensor 后返回 {ID: tensor} 字典。
+
+#     参数
+#     ----
+#     path : str
+#         存放 .pt 文件的目录
+#     files : list[str] 或 None
+#         指定要加载的文件名列表（只写文件名，不含路径）。
+#         如果为 None，则自动扫描 path 下所有 .pt 文件。
+#     device : str 或 torch.device 或 None
+#         想把 tensor 放到的设备，如 'cpu'、'cuda:0'。为 None 则不搬运。
+#     """
+
+#     # 自动发现 .pt 文件
+#     if files is None:
+#         files = [f for f in os.listdir(path) if f.endswith('.pt')]
+
+#     emb_dict = {}
+
+#     for pt_file in tqdm(files, desc='Loading embeddings', unit='file'):
+#         file_path = os.path.join(path, pt_file)
+
+#         arr = torch.load(file_path, weights_only=False)  # 这里读出来是 numpy.ndarray
+
+#         if not isinstance(arr, np.ndarray):
+#             raise TypeError(
+#                 f"File {pt_file} does not contain a numpy.ndarray, "
+#                 f"got {type(arr)} instead."
+#             )
+
+#         # 零拷贝从 numpy 转 tensor（共享内存，比 torch.tensor(arr) 高效）
+#         tensor = torch.from_numpy(arr)
+
+#         if device is not None:
+#             tensor = tensor.to(device)
+
+#         # 去掉后缀作为 ID，例如 matrix_H1_1.pt -> matrix_H1_1
+#         emb_id = pt_file.rsplit('.', 1)[0]
+#         emb_dict[emb_id] = tensor
+
+#     return emb_dict
+
 class EarlyStopping:
     def __init__(self, patience=7, verbose=True, delta=0, trace_func=print, save_dir=None):
         """
@@ -218,15 +263,13 @@ def convert_Pass2tensor(pass_cats):
     result = torch.tensor(
         [[int(number) for number in [char for char in item]] for item in result])
     return result
-
 def generate_matrix(matrix_list):
     seq_len = [mat.shape[0] for mat in matrix_list]
     max_len = max(seq_len)
     mask_list = []
-    for i in range(len(matrix_list)):
+    for i in range(len(matrix_list)): 
         matrix_list[i] = F.pad(matrix_list[i], (0, 0, 0, max_len - seq_len[i]))
-        mask = torch.concat(
-            (torch.ones(1, seq_len[i]), torch.zeros(1, max_len-seq_len[i])), axis=1)
+        mask = torch.concat((torch.ones(1, seq_len[i]), torch.zeros(1, max_len-seq_len[i])), axis=1)
         mask_list.append(mask)
     matrix = torch.stack(matrix_list)
     mask = torch.stack(mask_list).view(len(matrix_list), max_len)
@@ -243,3 +286,17 @@ def split_data_by_strain(dataframe, identity_cols, frac):
     train_data = dataframe[~mask]
 
     return train_data, test_data
+
+def assign_seq_id(data):
+    unique_HA = pd.concat([data['seq_a'], data['seq_c']]).unique().tolist()
+    unique_NA = pd.concat([data['seq_b'], data['seq_d']]).unique().tolist()
+    map_dict_HA = {seq: 'HA_' + str(i) for i, seq in enumerate(unique_HA)}
+    map_dict_NA = {seq: 'NA_' + str(i) for i, seq in enumerate(unique_NA)}
+    
+    data['seq_id_a'] = data['seq_a'].map(map_dict_HA)
+    data['seq_id_c'] = data['seq_c'].map(map_dict_HA)
+    data['seq_id_b'] = data['seq_b'].map(map_dict_NA)
+    data['seq_id_d'] = data['seq_d'].map(map_dict_NA)
+
+    return data
+
