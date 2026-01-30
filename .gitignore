@@ -10,3 +10,6 @@ __pycache__/
 .ipynb_checkpoints/
 /src/H5_test/
 *.pt
+*.fasta
+*.zip
+*.tar
