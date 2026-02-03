@@ -66,9 +66,10 @@ def DF_standardize_date(data):
 
     return data
 
-def print_exams(Prediction, Observation, print_result=True):
-    P = Prediction
+def print_exams(Observation, Prediction, print_result=True):
     O = Observation
+    P = Prediction
+    
     MAE, MSE, Pearson, Spearman, R2 = mean_absolute_error(O, P), mean_squared_error(O, P), pearsonr(O, P), spearmanr(O, P), r2_score(O, P)
     if print_result:
         print(f"MAE: {MAE:.5f}\nMSE: {MSE:.5f}\npearson correlation: {Pearson[0]:.5f}\nspearman correlation: {Spearman[0]:.5f}\nR2_score: {R2:.5f}")
