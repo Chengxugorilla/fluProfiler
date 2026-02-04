@@ -46,10 +46,33 @@ def git_state(repo_dir: Optional[Union[str, Path]] = None) -> Dict[str, str]:
         return {"commit": "nogit", "state": "unknown"}
 
 
+def _json_default(o):
+    # torch.device / Path / numpy 类型兜底
+    try:
+        import torch
+        if isinstance(o, torch.device):
+            return str(o)
+    except Exception:
+        pass
+    try:
+        from pathlib import Path as _Path
+        if isinstance(o, _Path):
+            return str(o)
+    except Exception:
+        pass
+    try:
+        import numpy as np
+        if isinstance(o, (np.integer, np.floating)):
+            return o.item()
+    except Exception:
+        pass
+    return str(o)
+
 def _dump_json(path: Path, obj: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=2)
+        json.dump(obj, f, ensure_ascii=False, indent=2, default=_json_default)
+
 
 
 @dataclass

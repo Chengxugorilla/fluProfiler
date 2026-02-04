@@ -1,0 +1,20 @@
+{
+    "run_name": "v0_1",
+    "run_tag": "test_2024NH__base",
+    "run_root": "runs",
+    "device": "cuda:6",
+    "batch_size": 8,
+    "epochs": 200,
+    "lr": 0.00008,
+    "val_frac": 0.1111111111,
+    "split_seed": 42,
+    "patience": 20,
+  
+    "train_csv": "/home/chenyh/workspace/fluProfiler/data/reverse_test/processed/test_2024NH/train.csv",
+    "test_csv": "/home/chenyh/workspace/fluProfiler/data/reverse_test/processed/test_2024NH/test.csv",
+    "embedding_dir": "/home/chenyh/workspace/fluProfiler/data/reverse_test/embedding",
+  
+    "config_json": "src/Section1_Antigenic_space/4_Reverse_test/model_4_2024NH/config_dict.json",
+    "args_pkl": "src/Section1_Antigenic_space/4_Reverse_test/model_4_2024NH/args.pkl"
+  }
+  
