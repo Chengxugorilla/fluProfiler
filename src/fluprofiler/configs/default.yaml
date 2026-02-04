@@ -1,0 +1,47 @@
+# Default configuration for fluProfiler
+# This file contains global default settings
+
+# Model configuration
+model:
+  name: "fluProfiler_v0_1"
+  hidden_size: 768
+  num_labels: 1
+  dropout_prob: 0.1
+
+# Training configuration
+training:
+  learning_rate: 1e-3
+  batch_size: 16
+  num_epochs: 100
+  weight_decay: 1e-4
+  patience: 10
+  optimizer: "adamw"
+  scheduler: "cosine"
+
+# Data configuration
+data:
+  max_sequence_length: 550
+  padding_length: 600
+  data_split:
+    train_ratio: 0.7
+    val_ratio: 0.15
+    test_ratio: 0.15
+
+# Logging configuration
+logging:
+  level: "INFO"
+  save_dir: "logs"
+  experiment_name: "default_experiment"
+
+# Evaluation configuration
+evaluation:
+  metrics: ["mae", "mse", "pearson", "spearman", "r2"]
+  bootstrap_samples: 1000
+  confidence_level: 0.95
+
+# Active learning configuration
+active_learning:
+  initial_labeled_ratio: 0.1
+  batch_size: 10
+  strategy: "uncertainty"
+  max_iterations: 50
