@@ -1,0 +1,9 @@
+{
+  "data_path": "../../../../data/reverse_test/",
+  "season_path": "processed/test_2024NH/",
+  "train_csv": "../../../../data/reverse_test/processed/test_2024NH/train.csv",
+  "test_csv": "../../../../data/reverse_test/processed/test_2024NH/test.csv",
+  "val_frac": 0.1111111111111111,
+  "split_seed": 42,
+  "split_hash": "8e041e0596939470818dab14667dc9d713340935"
+}
