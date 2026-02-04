@@ -1,7 +1,10 @@
 import sys
 sys.path.append('../../../../src/fluprofiler')
 from models.architectures import fluProfiler_v0_1, fluProfiler_Config
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
+import os
+from pathlib import Path
 import json
 import torch
 import pandas as pd
@@ -53,12 +56,89 @@ def generate_matrix(matrix_list):
     mask = torch.stack(mask_list).view(len(matrix_list),max_len)
     return matrix, mask
 
+def _find_repo_root(start: Path) -> Path:
+    """Find fluProfiler repo root by walking parents."""
+    for p in [start, *start.parents]:
+        if (p / "src").exists() and (p / "configs").exists():
+            return p
+        if (p / ".git").exists():
+            return p
+    # Fallback: assume 3 levels up (typical experiments/<...>/run.py)
+    return start.parents[2] if len(start.parents) >= 3 else start
+
+def _default_exp_id(script_path: Path, repo_root: Path) -> str:
+    """Infer exp_id like 'reverse_tests/2024NH/model4' from script location."""
+    try:
+        rel = script_path.resolve().relative_to(repo_root)
+        parts = list(rel.parts)
+        if "experiments" in parts:
+            i = parts.index("experiments")
+            exp_parts = parts[i + 1 : -1]  # drop filename
+            if exp_parts:
+                return "/".join(exp_parts)
+    except Exception:
+        pass
+    return "v0_1"
+
+def _make_run_dirs(repo_root: Path, exp_id: str, tag: str = "v0_1") -> dict:
+    """Create run directory tree under <repo_root>/runs/<exp_id>/<run_id>/..."""
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = f"{ts}__{tag}__pid{os.getpid()}"
+    run_root = (repo_root / "runs" / exp_id / run_id).resolve()
+
+    paths = {
+        "run_root": run_root,
+        "checkpoints": run_root / "checkpoints",
+        "metrics": run_root / "metrics",
+        "preds": run_root / "preds",
+        "plots": run_root / "plots",
+        "meta": run_root / "run_meta.json",
+    }
+
+    # Create directories (fail fast if collision)
+    for k, p in paths.items():
+        if k == "meta":
+            continue
+        p.mkdir(parents=True, exist_ok=False)
+
+    return paths
  
+ 
+_SCRIPT_PATH = Path(__file__).resolve()
+_REPO_ROOT = _find_repo_root(_SCRIPT_PATH)
 ## read complete information
-root_path = '../../../../'
+root_path = str(_REPO_ROOT) + "/"
 data_path = root_path + 'data/reverse_test/'
 season_path = 'processed/test_2024NH/'
-model_save_path = './checkpoints/'
+
+exp_id = os.environ.get("FLUPROFILER_EXP_ID") or _default_exp_id(_SCRIPT_PATH, _REPO_ROOT)
+tag = os.environ.get("FLUPROFILER_TAG") or "v0_1"
+run_paths = _make_run_dirs(_REPO_ROOT, exp_id=exp_id, tag=tag)
+
+# 创建与 checkpoints 同级的 tensorboard 目录
+tensorboard_log_dir = run_paths['run_root'] / "tensorboard"
+tensorboard_log_dir.mkdir(parents=True, exist_ok=False)  # 与原目录创建风格一致
+writer = SummaryWriter(log_dir=str(tensorboard_log_dir))
+print(f"TensorBoard logs saved to: {tensorboard_log_dir}")
+
+model_save_path = str(run_paths["checkpoints"]) + "/"  # EarlyStopping expects a dir
+log_path = run_paths['run_root'] / "log.txt"
+
+run_paths["meta"].write_text(
+    json.dumps(
+        {
+            "exp_id": exp_id,
+            "season_path": season_path,
+            "device": "cuda:6",
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        },
+        indent=2,
+        ensure_ascii=False,
+    ),
+    encoding="utf-8",
+)
+
+
 train_data = pd.read_csv(data_path + season_path + 'train.csv')
 test_data = pd.read_csv(data_path + season_path + 'test.csv')
 train_data, valid_data = train_test_split(train_data, test_size=1/9, random_state=42)     
@@ -67,9 +147,9 @@ train_data, valid_data = train_test_split(train_data, test_size=1/9, random_stat
 # train_data_final = pd.concat([train_data, Artificial_data])
 train_data_final = train_data
 
-train_data_final = train_data_final.iloc[:200]
-valid_data = valid_data.iloc[:200]
-test_data = test_data.iloc[:200]
+train_data_final = train_data_final.iloc[:100]
+valid_data = valid_data.iloc[:100]
+test_data = test_data.iloc[:100]
 
 train_dataset = fluProfiler_Dataset(train_data_final)
 valid_dataset = fluProfiler_Dataset(valid_data)
@@ -188,9 +268,18 @@ for epoch in range(epochs):
 
     valid_mae, valid_mse, valid_pearson, valid_spearman, valid_R2 = print_exams(reference_ls_valid, prediction_ls_valid)
 
+    writer.add_scalar('Loss/train', train_loss, epoch)
+    writer.add_scalar('Loss/valid', np.mean(loss_ls_valid), epoch)
+    writer.add_scalar('MAE/valid', valid_mae, epoch)
+    writer.add_scalar('MSE/valid', valid_mse, epoch)
+    writer.add_scalar('Pearson/valid', valid_pearson.statistic, epoch)
+    writer.add_scalar('Spearman/valid', valid_spearman.statistic, epoch)
+    writer.add_scalar('R2/valid', valid_R2, epoch)
+
     early_stopping(valid_mse, model)
     if early_stopping.early_stop:
         print("Early stopping")
+        writer.close()
         break
 
     prediction_ls_test = []
@@ -228,8 +317,14 @@ for epoch in range(epochs):
 
     test_mae, test_mse, test_pearson, test_spearman, test_R2 = print_exams(reference_ls_test, prediction_ls_test)
 
+    writer.add_scalar('MAE/test', test_mae, epoch)
+    writer.add_scalar('MSE/test', test_mse, epoch)
+    writer.add_scalar('Pearson/test', test_pearson.statistic, epoch)
+    writer.add_scalar('Spearman/test', test_spearman.statistic, epoch)
+    writer.add_scalar('R2/test', test_R2, epoch)
+
     # 将epoch信息写入log.txt
-    with open(model_save_path + 'log.txt', 'a') as f:
+    with open(log_path, 'a') as f:
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         f.write(
             f"[{current_time}] Epoch {epoch + 1}/{epochs}, "
@@ -243,4 +338,6 @@ for epoch in range(epochs):
             f"test Spearman: {test_spearman.statistic:.5f}, "
             f"test R2: {test_R2:.5f}\n"
         )
-        
+
+else:  # 仅当未触发 break 时执行（正常完成所有 epoch）
+    writer.close()
