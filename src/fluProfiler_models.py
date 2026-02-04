@@ -3,6 +3,7 @@ import copy
 import os
 import math
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.bert.configuration_bert import BertConfig
 from transformers.configuration_utils import PretrainedConfig
@@ -69,6 +70,162 @@ class attention_mask(nn.Module):
 
     def __repr__(self):
         return self.__class__.__name__ + ' (' + str(self.embed_size) + ' -> ' + str(self.embed_size) + ')'
+
+class value_pooling(nn.Module):
+    ## GlobalMaskValueAttentionPooling1D
+    def __init__(self, embed_size, units=None, use_additive_bias=False, use_attention_bias=False):
+        super(value_pooling, self).__init__()
+        self.embed_size = embed_size
+        self.use_additive_bias = use_additive_bias
+        self.use_attention_bias = use_attention_bias
+        self.units = units if units else embed_size 
+        self.U = nn.Parameter(torch.Tensor(self.embed_size, self.units))
+        self.V = nn.Parameter(torch.Tensor(self.embed_size, self.units))
+        self.W = nn.Parameter(torch.Tensor(self.units, self.embed_size))
+
+        nn.init.trunc_normal_(self.U, std=0.01)
+        nn.init.trunc_normal_(self.V, std=0.01)
+        nn.init.trunc_normal_(self.W, std=0.01)
+
+        if self.use_additive_bias:
+            self.b1 = nn.Parameter(torch.Tensor(self.units))
+            nn.init.trunc_normal_(self.b1, std=0.01)
+        if self.use_attention_bias:
+            self.b2 = nn.Parameter(torch.Tensor(self.embed_size))
+            nn.init.trunc_normal_(self.b2, std=0.01)
+
+    def forward(self, x, mask=None, save_attention_path=None):
+        # (B, Len, Embed) x (Embed, Units) = (B, Len, Units)
+        UV = self.U + self.V            # (Embed, Units)  临时张量，不改变参数本身
+        h = torch.matmul(x, UV)         # (B, Len, Units)
+
+        if self.use_additive_bias:
+            h = torch.tanh(h + self.b1) # b1 broadcast 到 (B, Len, Units)
+        else:
+            h = torch.tanh(h)
+
+        # (B, Len, Units) x (Units, Embed) = (B, Len, Embed)
+        if self.use_attention_bias:
+            e = torch.matmul(h, self.W) + self.b2
+        else:
+            e = torch.matmul(h, self.W)
+        
+        if mask is not None:
+            attention_probs = nn.Softmax(dim=1)(e + torch.unsqueeze((1.0 - mask) * -10000, dim=-1))
+        else:
+            attention_probs = nn.Softmax(dim=1)(e)
+
+        if save_attention_path is not None:
+            filenames = os.listdir(save_attention_path)
+            if len(filenames) == 0:
+                max_num = 0
+            else:
+                max_num = max([int(os.path.splitext(file)[0]) for file in filenames])
+            torch.save(attention_probs, save_attention_path + f'{max_num + 1}.pth')
+
+        x = torch.sum(attention_probs * x, dim=1)
+        return x
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' + str(self.embed_size) + ' -> ' + str(self.embed_size) + ')'
+
+class attention_pooling(nn.Module):
+    def __init__(self, embed_size, units=256, use_additive_bias=False, dropout_p=0.0, temperature=1.0):
+        super(attention_pooling, self).__init__()
+        self.embed_size = embed_size
+        self.units = units
+        self.use_additive_bias = use_additive_bias
+        self.dropout = nn.Dropout(dropout_p) if dropout_p > 0 else None
+        self.temperature = temperature
+
+        self.U = nn.Parameter(torch.empty(embed_size, units))
+        self.V = nn.Parameter(torch.empty(embed_size, units))
+        self.w_token = nn.Parameter(torch.empty(units, 1))
+
+        nn.init.trunc_normal_(self.U, std=0.01)
+        nn.init.trunc_normal_(self.V, std=0.01)
+        nn.init.trunc_normal_(self.w_token, std=0.01)
+
+        if use_additive_bias:
+            self.b1 = nn.Parameter(torch.empty(units))
+            nn.init.trunc_normal_(self.b1, std=0.01)
+
+        self.b_token = nn.Parameter(torch.zeros(1))  # 可选：标量 bias
+
+    def forward(self, x, mask=None, save_attention_path=None):
+        # x: (B, L, E), mask: (B, L) with 1 for valid, 0 for pad
+        q = x @ self.U                      # (B, L, units)
+        k = x @ self.V                      # (B, L, units)
+        h = q + k
+        if self.use_additive_bias:
+            h = h + self.b1
+        h = torch.tanh(h)                   # (B, L, units)
+
+        s = (h @ self.w_token) + self.b_token  # (B, L, 1)
+        s = s / self.temperature
+
+        if mask is not None:
+            s = s.masked_fill(mask.unsqueeze(-1) == 0, -1e4)
+
+        alpha = torch.softmax(s, dim=1)     # (B, L, 1)
+
+        if self.dropout is not None:
+            alpha = self.dropout(alpha)
+
+        if save_attention_path is not None:
+            # 这里保存 alpha 即可，后续可视化也更干净
+            torch.save(alpha.detach().cpu(), save_attention_path)
+
+        y = torch.sum(alpha * x, dim=1)     # (B, E)
+        return y
+
+class ResidueFeaturePooling(nn.Module):
+    def __init__(self, embed_size, units=256, temperature=1.0, residual_init=0.1):
+        super().__init__()
+        self.temperature = temperature
+
+        self.W = nn.Linear(embed_size, units, bias=True)
+        self.v = nn.Linear(units, 1, bias=True)
+        nn.init.trunc_normal_(self.W.weight, std=0.01)
+        nn.init.zeros_(self.W.bias)
+        nn.init.trunc_normal_(self.v.weight, std=0.01)
+        nn.init.zeros_(self.v.bias)
+
+        self.beta0 = nn.Parameter(torch.zeros(embed_size))  # global static feature gate
+        self.ln_attn = nn.LayerNorm(embed_size)
+        self.ln_base = nn.LayerNorm(embed_size)
+        self.gamma = nn.Parameter(torch.tensor(float(residual_init)))
+
+    @staticmethod
+    def _masked_mean(x, mask):
+        m = mask.unsqueeze(-1).to(dtype=x.dtype)            # (B,L,1)
+        denom = m.sum(dim=1).clamp(min=1.0)                 # (B,1)
+        return (x * m).sum(dim=1) / denom                   # (B,E)
+
+    def forward(self, x, mask=None, save_attention_path=None):
+        # x: (B,L,E), mask: (B,L) with 1 valid, 0 pad
+
+        h = torch.tanh(self.W(x))                           # (B,L,U)
+        s = self.v(h).squeeze(-1) / self.temperature        # (B,L)
+
+        if mask is not None:
+            s = s.masked_fill(mask == 0, torch.finfo(s.dtype).min)
+
+        alpha = F.softmax(s, dim=1)                         # (B,L)
+
+        if save_attention_path is not None:
+            torch.save(alpha.detach().cpu(), save_attention_path)
+
+        c_attn = (x * alpha.unsqueeze(-1)).sum(dim=1)       # (B,E)
+        c_attn = self.ln_attn(c_attn)
+        c_attn = c_attn * torch.sigmoid(self.beta0).unsqueeze(0)
+
+        c0 = x.mean(dim=1) if mask is None else self._masked_mean(x, mask)
+        c0 = self.ln_base(c0)
+
+        y = c0 + self.gamma * c_attn                        # (B,E)
+
+        return y
 
 class _MaskedLoss(nn.Module):
     """Base class for masked losses"""
@@ -355,6 +512,208 @@ class BertPreTrainedModel(PreTrainedModel):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
+class fluProfiler_v0_1(BertPreTrainedModel):
+    def __init__(self, config, args):
+        super(fluProfiler_v0_1, self).__init__(config)
+        if config.seq_max_length is None and config.seq_max_length_a == config.seq_max_length_b == config.seq_max_length_c == config.seq_max_length_d:
+            config.seq_max_length = config.seq_max_length_a
+        if config.matrix_max_length is None and config.matrix_max_length_a == config.matrix_max_length_b == config.matrix_max_length_c == config.matrix_max_length_d:
+            config.matrix_max_length = config.matrix_max_length_a
+        if config.embedding_input_size is None and config.embedding_input_size_a == config.embedding_input_size_b == config.embedding_input_size_c == config.embedding_input_size_d:
+            config.embedding_input_size = config.embedding_input_size_a
+
+        self.num_labels = config.num_labels
+        self.fusion_type = args.fusion_type if hasattr(args, "fusion_type") and args.fusion_type else "concat"
+        self.output_mode = args.output_mode
+        self.task_level_type = args.task_level_type
+        self.prepend_bos = args.prepend_bos
+        self.append_eos = args.append_eos
+
+        self.seq_encoder, self.seq_pooler, \
+        self.matrix_encoder, self.matrix_pooler = None, None, None, None
+        self.encoder_type_list = [False, False, False]
+        self.input_size_list = [0, 0, 0]
+        self.linear_idx = [-1, -1, -1]
+
+        self.matrix_dropout = nn.Dropout(p=0.1)
+ 
+
+        self.input_size_list[1] = config.hidden_size
+
+        new_config = copy.deepcopy(config)
+        new_config.embedding_input_size = config.hidden_size
+        # self.matrix_pooler = attention_mask(embed_size=new_config.embedding_input_size)
+        # self.matrix_pooler = attention_pooling(embed_size=new_config.embedding_input_size)
+        # self.matrix_pooler = ResidueFeaturePooling(embed_size=new_config.embedding_input_size)
+        self.matrix_pooler = value_pooling(embed_size=new_config.embedding_input_size)
+        
+        
+        self.encoder_type_list[1] = True
+        self.linear_idx[1] = 0 
+
+
+        fc_size_list = [config.seq_fc_size, config.matrix_fc_size, config.vector_fc_size]
+        all_linear_list = [None, None, None]
+        self.output_size = [0, 0, 0]
+        print("self.encoder_type_list:", self.encoder_type_list)
+        for encoder_idx, encoder_flag in enumerate(self.encoder_type_list):
+            if not encoder_flag:
+                continue
+            fc_size = fc_size_list[encoder_idx]
+            input_size = self.input_size_list[encoder_idx]
+            print("encoder_idx", encoder_idx, "input_size:", input_size)
+            if fc_size is not None and len(fc_size) > 0:
+                if isinstance(fc_size, list):
+                    fc_size = [int(v) for v in fc_size]
+                else:
+                    fc_size = [int(fc_size)]
+                linear_list = []
+                for idx in range(len(fc_size)):
+                    linear = nn.Linear(input_size, fc_size[idx])
+                    linear_list.append(linear)
+                    linear_list.append(create_activate(config.fc_activate_func))
+                    input_size = fc_size[idx]
+                all_linear_list[encoder_idx] = nn.ModuleList(linear_list)
+                self.output_size[encoder_idx] = fc_size[-1]
+            else:
+                # 没有全连接层
+                self.linear_idx[encoder_idx] = -1
+                self.output_size[encoder_idx] = input_size
+        all_linear_list = [linear for linear in all_linear_list if linear is not None]
+        if all_linear_list is not None and len(all_linear_list) > 0:
+            self.linear = nn.ModuleList(all_linear_list)
+
+        last_hidden_size = sum(self.output_size)
+        
+        last_hidden_size = last_hidden_size
+        self.dropout, self.hidden_layer, self.hidden_act, self.classifier, self.output, self.loss_fct = \
+            create_loss_function(
+                config,
+                args,
+                hidden_size=last_hidden_size * 6 + 256,
+                classifier_size=args.classifier_size,
+                sigmoid=args.sigmoid,
+                output_mode=args.output_mode,
+                num_labels=self.num_labels,
+                loss_type=args.loss_type,
+                ignore_index=args.ignore_index,
+                return_types=["dropout", "hidden_layer", "hidden_act", "classifier", "output", "loss"]
+            )
+        
+        self.Passage_encoder = nn.Sequential(
+            nn.Embedding(num_embeddings=6, embedding_dim=256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+        )
+
+    def __forward__(
+            self,
+            matrices,
+            matrix_attention_masks,
+            save_attention_path
+    ):  
+        if matrices is not None:
+            matrices = self.matrix_dropout(matrices)
+            matrix_vector = self.matrix_pooler(matrices, mask=matrix_attention_masks, save_attention_path=save_attention_path)
+
+            matrix_linear_idx = self.linear_idx[1]
+            if matrix_linear_idx != -1:
+                for i, layer_module in enumerate(self.linear[matrix_linear_idx]):
+                    matrix_vector = layer_module(matrix_vector)
+
+        concat_vector = matrix_vector
+
+        return concat_vector
+
+    def forward(
+            self,
+            input_ids_a=None, input_ids_b=None, input_ids_c=None, input_ids_d=None,
+            position_ids_a=None, position_ids_b=None, position_ids_c=None, position_ids_d=None,
+            token_type_ids_a=None, token_type_ids_b=None, token_type_ids_c=None, token_type_ids_d=None,
+            seq_attention_masks_a=None, seq_attention_masks_b=None, seq_attention_masks_c=None, seq_attention_masks_d=None,
+            vectors_a=None, vectors_b=None, vectors_c=None, vectors_d=None,
+            matrices_a=None, matrices_b=None, matrices_c=None, matrices_d=None,
+            matrix_attention_masks_a=None, matrix_attention_masks_b=None, matrix_attention_masks_c=None, matrix_attention_masks_d=None,
+            strainPassCats=None, labels=None,
+            save_concat_vector=None,
+            save_attention_path=None,
+            **kwargs
+    ):  
+        representation_vector_a = self.__forward__(
+            matrices_a,
+            matrix_attention_masks_a,
+            save_attention_path
+        )
+
+        representation_vector_b = self.__forward__(
+            matrices_b,
+            matrix_attention_masks_b,
+            save_attention_path
+        )
+
+        representation_vector_c = self.__forward__(
+            matrices_c,
+            matrix_attention_masks_c,
+            save_attention_path
+        )
+
+        representation_vector_d = self.__forward__(
+            matrices_d,
+            matrix_attention_masks_d,
+            save_attention_path
+        )
+
+        strainPassCats_vector = torch.mean(self.Passage_encoder(strainPassCats), dim=1)
+        
+        diff_ac = representation_vector_a - representation_vector_c   # 你想要的 a-c
+        prod_ac = representation_vector_a * representation_vector_c   # 逐元素乘
+
+        concat_vector = torch.concat([representation_vector_a, representation_vector_b, representation_vector_c, representation_vector_d, diff_ac, prod_ac], dim=1)
+        
+        if save_concat_vector is not None:
+            filenames = os.listdir(save_concat_vector)
+            if len(filenames):
+                max_num = max([int(filename.split('.pth')[0]) for filename in filenames])
+                torch.save(concat_vector, save_concat_vector + "/{}.pth".format(max_num+1))
+            else:
+                torch.save(concat_vector, save_concat_vector + "/1.pth")
+
+        if self.dropout is not None:
+            concat_vector = self.dropout(concat_vector)
+
+        concat_vector = torch.concat([concat_vector, strainPassCats_vector], dim=1)
+
+        concat_vector = self.hidden_layer(concat_vector)
+        concat_vector = self.hidden_act(concat_vector)
+
+        logits = self.classifier(concat_vector)
+        output = logits
+
+        outputs = [logits, output]
+        if labels is not None:
+            if self.output_mode in ["regression"]:
+                if self.task_level_type not in ["seq_level"] and self.loss_reduction == "meanmean":
+                    # logits: N, seq_len, 1
+                    # labels: N, seq_len
+                    loss = self.loss_fct(logits, labels)
+                else:
+                    # logits: N * seq_len
+                    # labels: N * seq_len
+                    loss = self.loss_fct(logits.view(-1), labels.view(-1))
+            elif self.num_labels <= 2 or self.output_mode in ["binary_class", "binary-class"]:
+                if self.task_level_type not in ["seq_level"] and self.loss_reduction == "meanmean":
+                    # logits: N ,seq_len, 1
+                    # labels: N, seq_len
+                    loss = self.loss_fct(logits, labels.float())
+                else:
+                    # logits: N * seq_len * 1
+                    # labels: N * seq_len
+                    loss = self.loss_fct(logits.view(-1), labels.view(-1).float())
+
+            outputs = [loss, *outputs]
+        return outputs
+
+
 class fluProfiler(BertPreTrainedModel):
     def __init__(self, config, args):
         super(fluProfiler, self).__init__(config)
@@ -385,7 +744,10 @@ class fluProfiler(BertPreTrainedModel):
 
         new_config = copy.deepcopy(config)
         new_config.embedding_input_size = config.hidden_size
-        self.matrix_pooler = attention_mask(embed_size=new_config.embedding_input_size)
+        # self.matrix_pooler = attention_mask(embed_size=new_config.embedding_input_size)
+        # self.matrix_pooler = attention_pooling(embed_size=new_config.embedding_input_size)
+        # self.matrix_pooler = ResidueFeaturePooling(embed_size=new_config.embedding_input_size)
+        self.matrix_pooler = value_pooling(embed_size=new_config.embedding_input_size)
         
         
         self.encoder_type_list[1] = True
@@ -549,7 +911,6 @@ class fluProfiler(BertPreTrainedModel):
 
             outputs = [loss, *outputs]
         return outputs
-
 
 class LucaQuadruple_final_dropout(BertPreTrainedModel):
     def __init__(self, config, args):

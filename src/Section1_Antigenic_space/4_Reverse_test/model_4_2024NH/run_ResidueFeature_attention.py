@@ -62,8 +62,13 @@ train_data = pd.read_csv(data_path + season_path + 'train.csv')
 test_data = pd.read_csv(data_path + season_path + 'test.csv')
 train_data, valid_data = train_test_split(train_data, test_size=1/9, random_state=42)     
 
-Artificial_data = pd.read_csv(data_path + season_path + 'artificial_data.csv')
-train_data_final = pd.concat([train_data, Artificial_data])
+# Artificial_data = pd.read_csv(data_path + season_path + 'artificial_data.csv')
+# train_data_final = pd.concat([train_data, Artificial_data])
+train_data_final = train_data
+
+# train_data_final = train_data_final.iloc[:200]
+# valid_data = valid_data.iloc[:200]
+# test_data = test_data.iloc[:200]
 
 train_dataset = fluProfiler_Dataset(train_data_final)
 valid_dataset = fluProfiler_Dataset(valid_data)
@@ -76,7 +81,7 @@ test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 # load embedding
 device = torch.device('cuda:5')
-embedding_df = pd.concat([train_data, valid_data, test_data], axis=0)
+embedding_df = pd.concat([train_data_final, valid_data, test_data], axis=0)
 sequence_names = pd.concat([embedding_df['seq_id_a'], embedding_df['seq_id_b'], 
                             embedding_df['seq_id_c'], embedding_df['seq_id_d']]).unique().tolist()
 sequence_names = ['matrix_' + item + '.pt' for item in sequence_names]
