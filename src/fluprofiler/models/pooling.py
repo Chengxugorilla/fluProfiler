@@ -7,6 +7,7 @@ Contains various pooling implementations including attention-based pooling.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import os
 
 
 class attention_mask(nn.Module):
@@ -69,7 +70,6 @@ class attention_mask(nn.Module):
 
 
 class value_pooling(nn.Module):
-    """GlobalMaskValueAttentionPooling1D"""
     def __init__(self, embed_size, units=None, use_additive_bias=False, use_attention_bias=False):
         super(value_pooling, self).__init__()
         self.embed_size = embed_size
