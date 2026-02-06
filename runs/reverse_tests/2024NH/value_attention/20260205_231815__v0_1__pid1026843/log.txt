@@ -1,0 +1,2 @@
+[2026-02-05 23:18:43] Epoch 1/7, train loss: 4.2159, valid MAE: 1.50664, valid MSE: 4.34191, valid Pearson: 0.33656, valid Spearman: 0.36109, valid R2: -0.07093, test MAE: 0.78806, test MSE: 1.47915, test Pearson: 0.22069, test Spearman: 0.22574, test R2: -0.09830
+[2026-02-05 23:18:46] Epoch 2/7, train loss: 3.1897, valid MAE: 1.63169, valid MSE: 3.96914, valid Pearson: 0.34654, valid Spearman: 0.37378, valid R2: 0.02101, test MAE: 0.98934, test MSE: 1.54543, test Pearson: 0.02921, test Spearman: -0.06251, test R2: -0.14751

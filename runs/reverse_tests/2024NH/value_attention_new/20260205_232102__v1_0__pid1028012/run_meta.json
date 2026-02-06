@@ -1,0 +1,7 @@
+{
+  "exp_id": "reverse_tests/2024NH/value_attention_new",
+  "season_path": "processed/test_2024NH/",
+  "device": "cuda:5",
+  "tag": "v1_0",
+  "created_at": "2026-02-05T23:21:02"
+}
