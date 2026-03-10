@@ -1,0 +1,27 @@
+model_class: fluProfiler_v0_1
+device: cuda:0
+total_params: 20843009
+trainable_params: 20843009
+
+fluProfiler_v0_1(
+  (matrix_dropout): Dropout(p=0.1, inplace=False)
+  (matrix_pooler): value_pooling (2560 -> 2560)
+  (linear): ModuleList(
+    (0): ModuleList(
+      (0): Linear(in_features=2560, out_features=256, bias=True)
+      (1): Tanh()
+    )
+  )
+  (dropout): Dropout(p=0.1, inplace=False)
+  (hidden_layer): Linear(in_features=1792, out_features=256, bias=True)
+  (hidden_act): GELU(approximate='none')
+  (classifier): Linear(in_features=256, out_features=1, bias=True)
+  (loss_fct): MaskedMSELoss(
+    (criterion): MSELoss()
+  )
+  (Passage_encoder): Sequential(
+    (0): Embedding(6, 256)
+    (1): ReLU()
+    (2): Linear(in_features=256, out_features=256, bias=True)
+  )
+)
