@@ -4,7 +4,8 @@ sys.path.append('../../')
 from experiment_tools import (
     find_repo_root, default_exp_id, make_run_dirs, generate_matrix,
     load_data_and_dataloaders, setup_optimizer, setup_tensorboard_and_logging,
-    train_step, evaluate_step, log_metrics_to_tensorboard, log_epoch_to_file
+    train_step, evaluate_step, log_metrics_to_tensorboard, log_epoch_to_file,
+    log_model_structure_to_log
 )
 from models.architectures import fluProfiler_v0_1, fluProfiler_Config
 from tqdm import tqdm
@@ -77,6 +78,9 @@ model_structure_path.write_text(
     encoding="utf-8",
 )
 print(f"Model structure saved to: {model_structure_path}")
+
+# 将模型结构写入 log.txt
+log_model_structure_to_log(model, device, log_path)
 
 # 设置优化器
 optimizer = setup_optimizer(model, fluProfiler_args, lr=0.00008)

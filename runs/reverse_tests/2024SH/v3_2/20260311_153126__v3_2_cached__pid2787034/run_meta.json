@@ -1,0 +1,7 @@
+{
+  "exp_id": "reverse_tests/2024SH/v3_2",
+  "season_path": "processed/test_2024SH/",
+  "device": "cuda:2",
+  "tag": "v3_2_cached",
+  "created_at": "2026-03-11T15:31:26"
+}

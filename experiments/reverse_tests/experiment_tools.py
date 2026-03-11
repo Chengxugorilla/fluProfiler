@@ -602,7 +602,7 @@ def log_metrics_to_tensorboard(writer, epoch, train_loss, valid_metrics, test_me
 def log_epoch_to_file(log_path, epoch, epochs, train_loss, valid_metrics, test_metrics):
     """
     将 epoch 信息写入日志文件
-    
+
     Args:
         log_path: 日志文件路径
         epoch: 当前 epoch（0-indexed）
@@ -625,4 +625,35 @@ def log_epoch_to_file(log_path, epoch, epochs, train_loss, valid_metrics, test_m
             f"test Spearman: {test_metrics['spearman']:.5f}, "
             f"test R2: {test_metrics['r2']:.5f}\n"
         )
+
+
+def log_model_structure_to_log(model, device, log_path):
+    """
+    将模型结构和参数信息写入 run 的 log.txt 文件开头
+
+    Args:
+        model: PyTorch 模型
+        device: 模型所在设备（字符串或 torch.device）
+        log_path: 日志文件路径
+    """
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    total_params = sum(param.numel() for param in model.parameters())
+    trainable_params = sum(param.numel() for param in model.parameters() if param.requires_grad)
+
+    structure_text = "\n".join([
+        "===== MODEL STRUCTURE START =====",
+        f"Time: {current_time}",
+        f"model_class: {model.__class__.__name__}",
+        f"device: {str(device)}",
+        f"total_params: {total_params:,}",
+        f"trainable_params: {trainable_params:,}",
+        "",
+        str(model),
+        "===== MODEL STRUCTURE END =====",
+        "",  # 空行分隔
+    ])
+
+    # 以 append 模式写入 log.txt 开头
+    with open(log_path, 'a') as f:
+        f.write(structure_text)
  

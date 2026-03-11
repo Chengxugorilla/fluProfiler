@@ -299,14 +299,12 @@ class fluProfiler_v3_0(PreTrainedModel):
 
         last_hidden_size = sum(self.output_size)
 
-        # v3_0: a,c 走 __forward__ 输出 last_hidden_size(256)，b,d 直接 max pooling 输出 config.hidden_size(2560)
-        # concat = a+b+c+d+diff_ac+prod_ac+strainPass = 256+2560+256+2560+256+256+256 = 6400
-        v3_0_hidden_size = 4 * last_hidden_size + 2 * config.hidden_size + 256
+        last_hidden_size = last_hidden_size
         self.dropout, self.hidden_layer, self.hidden_act, self.classifier, self.output, self.loss_fct = \
             create_loss_function(
                 config,
                 args,
-                hidden_size=v3_0_hidden_size,
+                hidden_size=last_hidden_size * 6 + 256,
                 classifier_size=args.classifier_size,
                 sigmoid=args.sigmoid,
                 output_mode=args.output_mode,
@@ -315,7 +313,7 @@ class fluProfiler_v3_0(PreTrainedModel):
                 ignore_index=args.ignore_index,
                 return_types=["dropout", "hidden_layer", "hidden_act", "classifier", "output", "loss"]
             )
-
+        
         self.Passage_encoder = nn.Sequential(
             nn.Embedding(num_embeddings=6, embedding_dim=256),
             nn.ReLU(),
@@ -326,11 +324,17 @@ class fluProfiler_v3_0(PreTrainedModel):
             self,
             matrices,
             matrix_attention_masks,
-            save_attention_path
+            att_pooling=True,
+            save_attention_path=None
     ):
         if matrices is not None:
             matrices = self.matrix_dropout(matrices)
-            matrix_vector = self.matrix_pooler(matrices, mask=matrix_attention_masks, save_attention_path=save_attention_path)
+            if att_pooling:
+                matrix_vector = self.matrix_pooler(matrices, mask=matrix_attention_masks, save_attention_path=save_attention_path)
+            else:
+                mask = matrix_attention_masks.unsqueeze(-1).to(dtype=matrices.dtype)  # (B, L, 1)
+                masked = matrices.masked_fill(mask == 0, torch.finfo(matrices.dtype).min)
+                matrix_vector = masked.max(dim=1).values  # (B, E)
 
             matrix_linear_idx = self.linear_idx[1]
             if matrix_linear_idx != -1:
@@ -358,23 +362,30 @@ class fluProfiler_v3_0(PreTrainedModel):
         representation_vector_a = self.__forward__(
             matrices_a,
             matrix_attention_masks_a,
+            True,
             save_attention_path
         )
 
-        # NA 序列（b）：不再送入 __forward__，而是直接做 max pooling
-        mask = matrix_attention_masks_b.unsqueeze(-1).to(dtype=matrices_b.dtype)  # (B, L, 1)
-        masked = matrices_b.masked_fill(mask == 0, torch.finfo(matrices_b.dtype).min)
-        representation_vector_b = masked.max(dim=1).values  # (B, E)
+        representation_vector_b = self.__forward__(
+            matrices_b,
+            matrix_attention_masks_b,
+            False,
+            save_attention_path
+        )
 
         representation_vector_c = self.__forward__(
             matrices_c,
             matrix_attention_masks_c,
+            True,
             save_attention_path
         )
 
-        mask = matrix_attention_masks_d.unsqueeze(-1).to(dtype=matrices_d.dtype)  # (B, L, 1)
-        masked = matrices_d.masked_fill(mask == 0, torch.finfo(matrices_d.dtype).min)
-        representation_vector_d = masked.max(dim=1).values  # (B, E)
+        representation_vector_d = self.__forward__(
+            matrices_d,
+            matrix_attention_masks_d,
+            False,
+            save_attention_path
+        )
 
         strainPassCats_vector = torch.max(self.Passage_encoder(strainPassCats), dim=1).values
 
@@ -425,6 +436,480 @@ class fluProfiler_v3_0(PreTrainedModel):
 
             outputs = [loss, *outputs]
         return outputs
+
+class fluProfiler_v3_1(PreTrainedModel):
+    """ 
+    这个版本在v3_0的基础上做了以下改进：
+    1. NA和HA pooling后不再共享linear层
+    2. 用回passage的mean pooling
+    """
+    config_class = fluProfiler_Config
+
+    def __init__(self, config, args):
+        super(fluProfiler_v3_1, self).__init__(config)
+
+        # 基本配置参数
+        self.num_labels = 1
+        
+        # Matrix pooling 和 dropout
+        self.matrix_dropout = nn.Dropout(p=0.1)
+        self.matrix_pooler = value_pooling(embed_size=config.hidden_size)
+
+        # Matrix 全连接层（HA 和 NA 分别使用独立的线性层）
+        self.matrix_linear_ha = None
+        self.matrix_linear_na = None
+        matrix_output_size = config.hidden_size
+
+        if config.matrix_fc_size is not None and len(config.matrix_fc_size) > 0:
+            if isinstance(config.matrix_fc_size, list):
+                fc_sizes = [int(v) for v in config.matrix_fc_size]
+            else:
+                fc_sizes = [int(config.matrix_fc_size)]
+
+            # 为 HA 创建线性层
+            ha_layers = []
+            input_size = config.hidden_size
+            for fc_size in fc_sizes:
+                ha_layers.append(nn.Linear(input_size, fc_size))
+                ha_layers.append(nn.Tanh())
+                input_size = fc_size
+            self.matrix_linear_ha = nn.Sequential(*ha_layers)
+
+            # 为 NA 创建独立的线性层（参数不共享）
+            na_layers = []
+            input_size = config.hidden_size
+            for fc_size in fc_sizes:
+                na_layers.append(nn.Linear(input_size, fc_size))
+                na_layers.append(nn.Tanh())
+                input_size = fc_size
+            self.matrix_linear_na = nn.Sequential(*na_layers)
+
+            matrix_output_size = fc_sizes[-1]
+
+        # 分类头：6个表示向量 (a,b,c,d,a-c,a*c) + 256维passage = matrix_output_size*6 + 256
+        head_input_size = matrix_output_size * 6 + 256
+
+        self.dropout, self.hidden_layer, self.hidden_act, self.classifier, self.output, self.loss_fct = \
+            create_loss_function(
+                config,
+                args,
+                hidden_size=head_input_size,
+                classifier_size=args.classifier_size,
+                sigmoid=args.sigmoid,
+                output_mode=args.output_mode,
+                num_labels=self.num_labels,
+                loss_type=args.loss_type,
+                ignore_index=args.ignore_index,
+                return_types=["dropout", "hidden_layer", "hidden_act", "classifier", "output", "loss"]
+            )
+
+        # Passage encoder
+        self.Passage_encoder = nn.Sequential(
+            nn.Embedding(num_embeddings=6, embedding_dim=256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+        )
+
+    def __forward__(
+            self,
+            matrices,
+            matrix_attention_masks,
+            att_pooling=True
+    ):
+        if matrices is not None:
+            matrices = self.matrix_dropout(matrices)
+            if att_pooling:
+                matrix_vector = self.matrix_pooler(matrices, mask=matrix_attention_masks)
+
+                linear = self.matrix_linear_ha
+            else:
+                mask = matrix_attention_masks.unsqueeze(-1).to(dtype=matrices.dtype)  # (B, L, 1)
+                masked = matrices.masked_fill(mask == 0, torch.finfo(matrices.dtype).min)
+                matrix_vector = masked.max(dim=1).values  # (B, E)
+
+                linear = self.matrix_linear_na
+                
+            if linear is not None:
+                matrix_vector = linear(matrix_vector)
+
+        return matrix_vector
+
+    def forward(
+            self,
+            matrices_a=None, matrices_b=None, matrices_c=None, matrices_d=None,
+            matrix_attention_masks_a=None, matrix_attention_masks_b=None, matrix_attention_masks_c=None, matrix_attention_masks_d=None,
+            strainPassCats=None, labels=None,
+            **kwargs
+    ):
+        representation_vector_a = self.__forward__(
+            matrices_a,
+            matrix_attention_masks_a,
+            True
+        )
+
+        representation_vector_b = self.__forward__(
+            matrices_b,
+            matrix_attention_masks_b,
+            False
+        )
+
+        representation_vector_c = self.__forward__(
+            matrices_c,
+            matrix_attention_masks_c,
+            True
+        )
+
+        representation_vector_d = self.__forward__(
+            matrices_d,
+            matrix_attention_masks_d,
+            False
+        )
+
+        strainPassCats_vector = torch.mean(self.Passage_encoder(strainPassCats), dim=1)
+
+        diff_ac = representation_vector_a - representation_vector_c   # 你想要的 a-c
+        prod_ac = representation_vector_a * representation_vector_c   # 逐元素乘
+
+        concat_vector = torch.concat([representation_vector_a, representation_vector_b, representation_vector_c, representation_vector_d, diff_ac, prod_ac], dim=1)
+
+        if self.dropout is not None:
+            concat_vector = self.dropout(concat_vector)
+
+        concat_vector = torch.concat([concat_vector, strainPassCats_vector], dim=1)
+
+        concat_vector = self.hidden_layer(concat_vector)
+        concat_vector = self.hidden_act(concat_vector)
+
+        logits = self.classifier(concat_vector)
+        output = logits
+
+        outputs = [logits, output]
+        if labels is not None:
+            # 单输出回归模型，直接计算损失
+            loss = self.loss_fct(logits.view(-1), labels.view(-1))
+            outputs = [loss, *outputs]
+        return outputs
+
+class fluProfiler_v3_2(PreTrainedModel):
+    """
+    在 v3_1 基础上的核心改动：
+
+    1. HA 主干不再是 pooled_a / pooled_c 后做 diff/prod
+       改为：
+       serum HA -> soft summary z_s
+       virus HA + z_s -> serum-conditioned virus scoring -> z_pair
+       virus HA -> intrinsic branch -> z_intrinsic
+
+    2. NA 保持轻量辅助分支
+       用 virus NA 表示 + virus-serum NA 差值表示
+       并由 passage/meta 提供一个 scalar gate
+
+    3. passage 继续 mean pooling，但不只是 concat，
+       还额外控制 NA 分支强度
+    """
+    config_class = fluProfiler_Config
+
+    def __init__(self, config, args):
+        super().__init__(config)
+
+        self.num_labels = 1
+        self.hidden_size = config.hidden_size
+
+        # ========= 超参数（给默认值，避免 args 里没有时报错） =========
+        self.ha_pair_dim = getattr(args, "ha_pair_dim", 256)
+        self.ha_pair_hidden = getattr(args, "ha_pair_hidden", 256)
+        self.ha_pair_output = getattr(args, "ha_pair_output", 128)
+        self.ha_intrinsic_dim = getattr(args, "ha_intrinsic_dim", 64)
+
+        self.dropout_p = getattr(args, "dropout_prob", 0.1)
+
+        # ========= 公共 dropout =========
+        self.matrix_dropout = nn.Dropout(p=self.dropout_p)
+        self.token_dropout = nn.Dropout(p=self.dropout_p)
+
+        # ========= HA 主干 =========
+        # 先把 token-level HA embedding 降到较低维，便于后续 pair interaction
+        self.ha_proj = nn.Linear(self.hidden_size, self.ha_pair_dim)
+        self.ha_proj_norm = nn.LayerNorm(self.ha_pair_dim)
+        self.ha_proj_act = nn.GELU()
+
+        # serum summary: 从 serum HA 提一个 soft summary z_s
+        self.serum_score = nn.Linear(self.ha_pair_dim, 1)
+
+        # serum-conditioned virus scoring
+        # 对每个位点构造 [Hv, z_s, Hv-z_s, Hv*z_s]
+        self.pair_mlp = nn.Sequential(
+            nn.Linear(self.ha_pair_dim * 4, self.ha_pair_hidden),
+            nn.GELU(),
+            nn.Dropout(self.dropout_p),
+            nn.Linear(self.ha_pair_hidden, self.ha_pair_output),
+            nn.GELU(),
+        )
+        self.pair_score = nn.Linear(self.ha_pair_output, 1)
+
+        # virus intrinsic branch：拟合 virus 自身 assay-facing 偏置
+        self.intrinsic_score = nn.Linear(self.ha_pair_dim, 1)
+        self.intrinsic_proj = nn.Sequential(
+            nn.Linear(self.ha_pair_dim, self.ha_intrinsic_dim),
+            nn.GELU(),
+        )
+
+        # ========= NA 轻量辅助分支 =========
+        # NA 不做重型 residue-level interaction，保留简单 pool + MLP
+        self.na_linear = None
+        na_output_size = self.hidden_size
+
+        if config.matrix_fc_size is not None and len(config.matrix_fc_size) > 0:
+            if isinstance(config.matrix_fc_size, list):
+                fc_sizes = [int(v) for v in config.matrix_fc_size]
+            else:
+                fc_sizes = [int(config.matrix_fc_size)]
+
+            na_layers = []
+            input_size = self.hidden_size
+            for fc_size in fc_sizes:
+                na_layers.append(nn.Linear(input_size, fc_size))
+                na_layers.append(nn.Tanh())   # 这里保留你原来的风格
+                input_size = fc_size
+            self.na_linear = nn.Sequential(*na_layers)
+            na_output_size = fc_sizes[-1]
+
+        # ========= Passage / meta =========
+        self.passage_dim = 256
+        self.Passage_encoder = nn.Sequential(
+            nn.Embedding(num_embeddings=6, embedding_dim=self.passage_dim),
+            nn.ReLU(),
+            nn.Linear(self.passage_dim, self.passage_dim),
+        )
+
+        # passage -> scalar gate，用来调节 NA 分支强度
+        self.na_gate = nn.Linear(self.passage_dim, 1)
+
+        # ========= 最终 head =========
+        # final = [z_pair, z_intrinsic, na_v, na_diff, z_meta]
+        head_input_size = (
+            self.ha_pair_output
+            + self.ha_intrinsic_dim
+            + na_output_size
+            + na_output_size
+            + self.passage_dim
+        )
+
+        (
+            self.dropout,
+            self.hidden_layer,
+            self.hidden_act,
+            self.classifier,
+            self.output,
+            self.loss_fct,
+        ) = create_loss_function(
+            config,
+            args,
+            hidden_size=head_input_size,
+            classifier_size=args.classifier_size,
+            sigmoid=args.sigmoid,
+            output_mode=args.output_mode,
+            num_labels=self.num_labels,
+            loss_type=args.loss_type,
+            ignore_index=args.ignore_index,
+            return_types=["dropout", "hidden_layer", "hidden_act", "classifier", "output", "loss"],
+        )
+
+    # ===================== 基础工具函数 =====================
+
+    def _masked_softmax(self, scores, mask, dim=1):
+        """
+        scores: (B, L, 1) 或 (B, L)
+        mask:   (B, L), 有效位置为1
+        """
+        if mask is None:
+            return torch.softmax(scores, dim=dim)
+
+        while mask.dim() < scores.dim():
+            mask = mask.unsqueeze(-1)
+
+        mask = mask.to(dtype=scores.dtype)
+        scores = scores.masked_fill(mask == 0, -1e4)
+
+        attn = torch.softmax(scores, dim=dim)
+        attn = attn * mask
+        attn = attn / attn.sum(dim=dim, keepdim=True).clamp_min(1e-6)
+        return attn
+
+    def _masked_max_pool(self, matrices, mask):
+        """
+        matrices: (B, L, E)
+        mask:     (B, L)
+        """
+        if mask is None:
+            return matrices.max(dim=1).values
+
+        mask = mask.unsqueeze(-1).to(dtype=torch.bool)
+        masked = matrices.masked_fill(~mask, torch.finfo(matrices.dtype).min)
+        return masked.max(dim=1).values
+
+    # ===================== HA 主干 =====================
+
+    def _encode_ha_tokens(self, matrices):
+        """
+        输入 HA token embeddings，输出降维后的 token 表示
+        matrices: (B, L, hidden_size)
+        return:   (B, L, ha_pair_dim)
+        """
+        x = self.matrix_dropout(matrices)
+        x = self.ha_proj(x)
+        x = self.ha_proj_norm(x)
+        x = self.ha_proj_act(x)
+        x = self.token_dropout(x)
+        return x
+
+    def _serum_summary(self, hs_tokens, hs_mask):
+        """
+        hs_tokens: (B, Ls, D)
+        hs_mask:   (B, Ls)
+
+        return:
+            z_s: (B, D)
+            w_s: (B, Ls, 1)
+        """
+        score_s = self.serum_score(hs_tokens)             # (B, Ls, 1)
+        w_s = self._masked_softmax(score_s, hs_mask, dim=1)
+        z_s = torch.sum(w_s * hs_tokens, dim=1)          # (B, D)
+        return z_s, w_s
+
+    def _virus_pair_encode(self, hv_tokens, hv_mask, z_s):
+        """
+        hv_tokens: (B, Lv, D)
+        hv_mask:   (B, Lv)
+        z_s:       (B, D)
+
+        return:
+            z_pair:   (B, ha_pair_output)
+            w_v_pair: (B, Lv, 1)
+        """
+        z_s_expand = z_s.unsqueeze(1).expand(-1, hv_tokens.size(1), -1)  # (B, Lv, D)
+
+        u = torch.cat(
+            [
+                hv_tokens,
+                z_s_expand,
+                hv_tokens - z_s_expand,
+                hv_tokens * z_s_expand,
+            ],
+            dim=-1,
+        )  # (B, Lv, 4D)
+
+        pair_hidden = self.pair_mlp(u)                   # (B, Lv, ha_pair_output)
+        score_v = self.pair_score(pair_hidden)           # (B, Lv, 1)
+        w_v_pair = self._masked_softmax(score_v, hv_mask, dim=1)
+        z_pair = torch.sum(w_v_pair * pair_hidden, dim=1)   # (B, ha_pair_output)
+        return z_pair, w_v_pair
+
+    def _virus_intrinsic_encode(self, hv_tokens, hv_mask):
+        """
+        hv_tokens: (B, Lv, D)
+        hv_mask:   (B, Lv)
+
+        return:
+            z_intrinsic: (B, ha_intrinsic_dim)
+            w_intr:      (B, Lv, 1)
+        """
+        score_intr = self.intrinsic_score(hv_tokens)     # (B, Lv, 1)
+        w_intr = self._masked_softmax(score_intr, hv_mask, dim=1)
+        z_intr_raw = torch.sum(w_intr * hv_tokens, dim=1)    # (B, D)
+        z_intrinsic = self.intrinsic_proj(z_intr_raw)        # (B, ha_intrinsic_dim)
+        return z_intrinsic, w_intr
+
+    # ===================== NA / passage =====================
+
+    def _encode_na(self, matrices, matrix_attention_masks):
+        """
+        NA 轻量编码：max pooling + 独立 MLP
+        matrices: (B, L, hidden_size)
+        return:   (B, na_output_size)
+        """
+        x = self.matrix_dropout(matrices)
+        x = self._masked_max_pool(x, matrix_attention_masks)
+        if self.na_linear is not None:
+            x = self.na_linear(x)
+        return x
+
+    def _encode_passage(self, strainPassCats):
+        """
+        strainPassCats: (B, P)
+        return:
+            z_meta: (B, 256)
+            g_na:   (B, 1)
+        """
+        z_meta = torch.mean(self.Passage_encoder(strainPassCats), dim=1)  # (B, 256)
+        g_na = torch.sigmoid(self.na_gate(z_meta))                        # (B, 1)
+        return z_meta, g_na
+
+    # ===================== forward =====================
+
+    def forward(
+        self,
+        matrices_a=None, matrices_b=None, matrices_c=None, matrices_d=None,
+        matrix_attention_masks_a=None, matrix_attention_masks_b=None,
+        matrix_attention_masks_c=None, matrix_attention_masks_d=None,
+        strainPassCats=None,
+        labels=None,
+        return_attentions=False,
+        **kwargs
+    ):
+        # ---------- HA 主干 ----------
+        # a: virus HA, c: serum HA
+        hv_tokens = self._encode_ha_tokens(matrices_a)   # (B, Lv, D)
+        hs_tokens = self._encode_ha_tokens(matrices_c)   # (B, Ls, D)
+
+        z_s, w_s = self._serum_summary(hs_tokens, matrix_attention_masks_c)
+        z_pair, w_v_pair = self._virus_pair_encode(hv_tokens, matrix_attention_masks_a, z_s)
+        z_intrinsic, w_intr = self._virus_intrinsic_encode(hv_tokens, matrix_attention_masks_a)
+
+        # ---------- NA 辅助 ----------
+        # b: virus NA, d: serum NA
+        na_v = self._encode_na(matrices_b, matrix_attention_masks_b)
+        na_s = self._encode_na(matrices_d, matrix_attention_masks_d)
+        na_diff = na_v - na_s
+
+        # ---------- passage / meta ----------
+        z_meta, g_na = self._encode_passage(strainPassCats)
+
+        # 用 scalar gate 控制 NA 分支
+        na_v = na_v * g_na
+        na_diff = na_diff * g_na
+
+        # ---------- final concat ----------
+        concat_vector = torch.cat(
+            [z_pair, z_intrinsic, na_v, na_diff, z_meta],
+            dim=1
+        )
+
+        if self.dropout is not None:
+            concat_vector = self.dropout(concat_vector)
+
+        concat_vector = self.hidden_layer(concat_vector)
+        concat_vector = self.hidden_act(concat_vector)
+
+        logits = self.classifier(concat_vector)
+        output = logits
+
+        outputs = [logits, output]
+
+        if labels is not None:
+            loss = self.loss_fct(logits.view(-1), labels.view(-1))
+            outputs = [loss, *outputs]
+
+        if return_attentions:
+            attn_dict = {
+                "serum_site_weights": w_s.squeeze(-1),        # (B, Ls)
+                "virus_pair_weights": w_v_pair.squeeze(-1),   # (B, Lv)
+                "virus_intrinsic_weights": w_intr.squeeze(-1) # (B, Lv)
+            }
+            outputs.append(attn_dict)
+
+        return outputs
+
 
 class fluProfiler_v0_1_1(PreTrainedModel):
     """ 
@@ -627,7 +1112,6 @@ class fluProfiler_v0_1_1(PreTrainedModel):
 
             outputs = [loss, *outputs]
         return outputs
-
 
 class fluProfiler_v1_2(PreTrainedModel):
     """fluProfiler model v1.2
@@ -1176,7 +1660,6 @@ class fluProfiler_v1_2_2(PreTrainedModel):
             outputs = [loss] + outputs
         return outputs
 
-
 class fluProfiler(PreTrainedModel):
     """
     HANA baseline in current fluProfiler framework.
@@ -1342,7 +1825,6 @@ class fluProfiler(PreTrainedModel):
 
         return outputs
 
-
 class AdaptivePooling(nn.Module):
     """
     自适应池化：结合注意力池化和值池化
@@ -1366,7 +1848,6 @@ class AdaptivePooling(nn.Module):
         # 加权组合
         output = weights[:, 0:1] * attn_out + weights[:, 1:2] * val_out
         return self.dropout(output)
-
 
 class CrossAttentionFusion(nn.Module):
     """
@@ -1423,7 +1904,6 @@ class CrossAttentionFusion(nn.Module):
 
         return fused
 
-
 class EnhancedPassageEncoder(nn.Module):
     """
     增强的Passage Encoder，包含残差连接和更深层结构
@@ -1463,7 +1943,6 @@ class EnhancedPassageEncoder(nn.Module):
         x = self.dropout(x)
 
         return x
-
 
 class fluProfiler_v1_0(PreTrainedModel):
     """
