@@ -1,0 +1,18 @@
+===== RUN CONFIG START =====
+{
+  "time": "2026-03-12 16:07:08",
+  "data_path": "/home/chenyh/workspace/fluProfiler/data/reverse_test/",
+  "season_path": "processed/test_2023SH/",
+  "epochs": 250,
+  "patience": 250,
+  "batch_size": 64,
+  "sample_limit": null,
+  "use_lr_schedule": true,
+  "lr": 8e-05,
+  "model_class": "fluProfiler_v3_1",
+  "tag": "v3_1_cached",
+  "device": "cuda:1"
+}
+===== RUN CONFIG END =====
+
+[2026-03-12 16:09:42] Epoch 1/250, train loss: 2.3156, valid MAE: 0.99646, valid MSE: 1.77796, valid Pearson: 0.74388, valid Spearman: 0.73074, valid R2: 0.53277, test MAE: 1.48871, test MSE: 3.41802, test Pearson: 0.15719, test Spearman: 0.04923, test R2: -0.17288

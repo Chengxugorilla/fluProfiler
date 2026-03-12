@@ -1,0 +1,24 @@
+===== RUN CONFIG START =====
+{
+  "time": "2026-03-12 15:53:13",
+  "data_path": "/home/chenyh/workspace/fluProfiler/data/reverse_test/",
+  "season_path": "processed/test_2023NH/",
+  "epochs": 250,
+  "patience": 20,
+  "batch_size": 64,
+  "sample_limit": null,
+  "use_lr_schedule": true,
+  "lr": 8e-05,
+  "model_class": "fluProfiler_v3_1",
+  "tag": "v3_1_cached",
+  "device": "cuda:0"
+}
+===== RUN CONFIG END =====
+
+[2026-03-12 15:55:50] Epoch 1/250, train loss: 2.2468, valid MAE: 0.98246, valid MSE: 1.69206, valid Pearson: 0.78339, valid Spearman: 0.75691, valid R2: 0.56823, test MAE: 1.80147, test MSE: 4.77568, test Pearson: 0.06508, test Spearman: 0.07071, test R2: -0.60812
+[2026-03-12 15:58:16] Epoch 2/250, train loss: 1.3939, valid MAE: 0.84386, valid MSE: 1.19010, valid Pearson: 0.83506, valid Spearman: 0.79868, valid R2: 0.69632, test MAE: 1.13025, test MSE: 1.93536, test Pearson: 0.63062, test Spearman: 0.51059, test R2: 0.34830
+[2026-03-12 16:00:43] Epoch 3/250, train loss: 1.1896, valid MAE: 0.82217, valid MSE: 1.16958, valid Pearson: 0.84988, valid Spearman: 0.81064, valid R2: 0.70155, test MAE: 1.13690, test MSE: 2.09634, test Pearson: 0.69473, test Spearman: 0.50218, test R2: 0.29410
+[2026-03-12 16:03:09] Epoch 4/250, train loss: 1.1217, valid MAE: 0.78915, valid MSE: 1.05125, valid Pearson: 0.85549, valid Spearman: 0.81694, valid R2: 0.73175, test MAE: 1.00296, test MSE: 1.61448, test Pearson: 0.71493, test Spearman: 0.60017, test R2: 0.45636
+[2026-03-12 16:05:34] Epoch 5/250, train loss: 1.0660, valid MAE: 0.77928, valid MSE: 1.00439, valid Pearson: 0.86550, valid Spearman: 0.82502, valid R2: 0.74371, test MAE: 0.98726, test MSE: 1.60904, test Pearson: 0.72256, test Spearman: 0.57083, test R2: 0.45819
+[2026-03-12 16:08:00] Epoch 6/250, train loss: 1.0291, valid MAE: 0.76678, valid MSE: 1.01493, valid Pearson: 0.86411, valid Spearman: 0.82533, valid R2: 0.74102, test MAE: 1.05420, test MSE: 1.82115, test Pearson: 0.70976, test Spearman: 0.56266, test R2: 0.38676
+[2026-03-12 16:10:28] Epoch 7/250, train loss: 1.0060, valid MAE: 0.75104, valid MSE: 0.96047, valid Pearson: 0.86967, valid Spearman: 0.82831, valid R2: 0.75492, test MAE: 1.04463, test MSE: 1.72843, test Pearson: 0.71712, test Spearman: 0.61594, test R2: 0.41798
