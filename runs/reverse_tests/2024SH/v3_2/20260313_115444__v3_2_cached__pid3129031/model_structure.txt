@@ -1,0 +1,43 @@
+model_class: fluProfiler_v3_2
+device: cuda:5
+total_params: 1937989
+trainable_params: 1937989
+
+fluProfiler_v3_2(
+  (matrix_dropout): Dropout(p=0.1, inplace=False)
+  (token_dropout): Dropout(p=0.1, inplace=False)
+  (ha_proj): Linear(in_features=2560, out_features=256, bias=True)
+  (ha_proj_norm): LayerNorm((256,), eps=1e-05, elementwise_affine=True)
+  (ha_proj_act): GELU(approximate='none')
+  (serum_score): Linear(in_features=256, out_features=1, bias=True)
+  (pair_mlp): Sequential(
+    (0): Linear(in_features=1024, out_features=256, bias=True)
+    (1): GELU(approximate='none')
+    (2): Dropout(p=0.1, inplace=False)
+    (3): Linear(in_features=256, out_features=128, bias=True)
+    (4): GELU(approximate='none')
+  )
+  (pair_score): Linear(in_features=128, out_features=1, bias=True)
+  (intrinsic_score): Linear(in_features=256, out_features=1, bias=True)
+  (intrinsic_proj): Sequential(
+    (0): Linear(in_features=256, out_features=64, bias=True)
+    (1): GELU(approximate='none')
+  )
+  (na_linear): Sequential(
+    (0): Linear(in_features=2560, out_features=256, bias=True)
+    (1): Tanh()
+  )
+  (Passage_encoder): Sequential(
+    (0): Embedding(6, 256)
+    (1): ReLU()
+    (2): Linear(in_features=256, out_features=256, bias=True)
+  )
+  (na_gate): Linear(in_features=256, out_features=1, bias=True)
+  (dropout): Dropout(p=0.1, inplace=False)
+  (hidden_layer): Linear(in_features=960, out_features=256, bias=True)
+  (hidden_act): GELU(approximate='none')
+  (classifier): Linear(in_features=256, out_features=1, bias=True)
+  (loss_fct): MaskedMSELoss(
+    (criterion): MSELoss()
+  )
+)
