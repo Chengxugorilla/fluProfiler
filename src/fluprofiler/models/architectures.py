@@ -15,7 +15,7 @@ from transformers.models.bert.configuration_bert import BertConfig
 from transformers.configuration_utils import PretrainedConfig
 
 from .config import fluProfiler_Config
-from .losses import create_loss_function
+from .losses import create_loss_function, create_activate
 from .pooling import value_pooling, attention_mask, attention_pooling, value_weighting
 
 
@@ -105,7 +105,7 @@ class fluProfiler_HANA(PreTrainedModel):
             )
         
         self.Passage_encoder = nn.Sequential(
-            nn.Embedding(num_embeddings=5, embedding_dim=256),
+            nn.Embedding(num_embeddings=6, embedding_dim=256),  # convert_Pass2tensor 索引 0–5（含 <NONE>）
             nn.ReLU(),
             nn.Linear(256, 256),
         )
@@ -214,6 +214,168 @@ class fluProfiler_HANA(PreTrainedModel):
             outputs = [loss, *outputs]
         return outputs
 
+class fluProfiler_HA(PreTrainedModel):
+    def __init__(self, config, args):
+        super(fluProfiler_HA, self).__init__(config)
+
+        self.num_labels = 1
+        self.output_mode = "regression"
+        self.task_level_type = args.task_level_type
+        self.prepend_bos = args.prepend_bos
+        self.append_eos = args.append_eos
+
+        self.seq_encoder, self.seq_pooler, \
+        self.matrix_encoder, self.matrix_pooler = None, None, None, None
+        self.encoder_type_list = [False, False, False]
+        self.input_size_list = [0, 0, 0]
+        self.linear_idx = [-1, -1, -1]
+
+        self.matrix_dropout = nn.Dropout(p=0.1)
+ 
+
+        self.input_size_list[1] = config.hidden_size
+
+        new_config = copy.deepcopy(config)
+        new_config.embedding_input_size = config.hidden_size
+        self.matrix_pooler = attention_mask(embed_size=new_config.embedding_input_size)
+        
+        
+        self.encoder_type_list[1] = True
+        self.linear_idx[1] = 0
+
+
+        fc_size_list = [config.seq_fc_size, config.matrix_fc_size, config.vector_fc_size]
+        all_linear_list = [None, None, None]
+        self.output_size = [0, 0, 0]
+        print("self.encoder_type_list:", self.encoder_type_list)
+        for encoder_idx, encoder_flag in enumerate(self.encoder_type_list):
+            if not encoder_flag:
+                continue
+            fc_size = fc_size_list[encoder_idx]
+            input_size = self.input_size_list[encoder_idx]
+            print("encoder_idx", encoder_idx, "input_size:", input_size)
+            if fc_size is not None and len(fc_size) > 0:
+                if isinstance(fc_size, list):
+                    fc_size = [int(v) for v in fc_size]
+                else:
+                    fc_size = [int(fc_size)]
+                linear_list = []
+                for idx in range(len(fc_size)):
+                    linear = nn.Linear(input_size, fc_size[idx])
+                    linear_list.append(linear)
+                    linear_list.append(create_activate(config.fc_activate_func))
+                    input_size = fc_size[idx]
+                all_linear_list[encoder_idx] = nn.ModuleList(linear_list)
+                self.output_size[encoder_idx] = fc_size[-1]
+            else:
+                # 没有全连接层
+                self.linear_idx[encoder_idx] = -1
+                self.output_size[encoder_idx] = input_size
+        all_linear_list = [linear for linear in all_linear_list if linear is not None]
+        if all_linear_list is not None and len(all_linear_list) > 0:
+            self.linear = nn.ModuleList(all_linear_list)
+
+        last_hidden_size = sum(self.output_size)
+        
+        last_hidden_size = last_hidden_size
+        self.dropout, self.hidden_layer, self.hidden_act, self.classifier, self.output, self.loss_fct = \
+            create_loss_function(
+                config,
+                args,
+                hidden_size=last_hidden_size * 2 + 256,
+                classifier_size=args.classifier_size,
+                sigmoid=args.sigmoid,
+                output_mode=args.output_mode,
+                num_labels=self.num_labels,
+                loss_type=args.loss_type,
+                ignore_index=args.ignore_index,
+                return_types=["dropout", "hidden_layer", "hidden_act", "classifier", "output", "loss"]
+            )
+        
+        self.Passage_encoder = nn.Sequential(
+            nn.Embedding(num_embeddings=6, embedding_dim=256),  # convert_Pass2tensor 索引 0–5（含 <NONE>）
+            nn.ReLU(),
+            nn.Linear(256, 256),
+        )
+
+    def __forward__(
+            self,
+            matrices,
+            matrix_attention_masks,
+            save_attention_path
+    ):  
+        if matrices is not None:
+            matrices = self.matrix_dropout(matrices)
+            matrix_vector = self.matrix_pooler(matrices, mask=matrix_attention_masks, save_attention_path=save_attention_path)
+
+            matrix_linear_idx = self.linear_idx[1]
+            if matrix_linear_idx != -1:
+                for i, layer_module in enumerate(self.linear[matrix_linear_idx]):
+                    matrix_vector = layer_module(matrix_vector)
+
+        concat_vector = matrix_vector
+
+        return concat_vector
+
+    def forward(
+            self,
+            matrices_a=None, matrices_c=None,
+            matrix_attention_masks_a=None, matrix_attention_masks_c=None,
+            strainPassCats=None, labels=None,
+            save_concat_vector=None,
+            save_attention_path=None,
+            **kwargs
+    ):  
+        representation_vector_a = self.__forward__(
+            matrices_a,
+            matrix_attention_masks_a,
+            save_attention_path
+        )
+
+        representation_vector_c = self.__forward__(
+            matrices_c,
+            matrix_attention_masks_c,
+            save_attention_path
+        )
+
+        strainPassCats_vector = torch.mean(self.Passage_encoder(strainPassCats), dim=1)
+        
+        concat_vector = torch.concat([representation_vector_a, representation_vector_c], dim=1)
+
+        if self.dropout is not None:
+            concat_vector = self.dropout(concat_vector)
+
+        concat_vector = torch.concat([concat_vector, strainPassCats_vector], dim=1)
+
+        concat_vector = self.hidden_layer(concat_vector)
+        concat_vector = self.hidden_act(concat_vector)
+
+        logits = self.classifier(concat_vector)
+        output = logits
+
+        outputs = [logits, output]
+        if labels is not None:
+            if self.output_mode in ["regression"]:
+                if self.task_level_type not in ["seq_level"] and self.loss_reduction == "meanmean":
+                    # logits: N, seq_len, 1
+                    # labels: N, seq_len
+                    loss = self.loss_fct(logits, labels)
+                else:
+                    # logits: N * seq_len
+                    # labels: N * seq_len
+                    loss = self.loss_fct(logits.view(-1), labels.view(-1))
+            elif self.num_labels <= 2 or self.output_mode in ["binary_class", "binary-class"]:
+                if self.task_level_type not in ["seq_level"] and self.loss_reduction == "meanmean":
+                    # logits: N ,seq_len, 1
+                    # labels: N, seq_len
+                    loss = self.loss_fct(logits, labels.float())
+                else:
+                    # logits: N * seq_len * 1
+                    # labels: N * seq_len
+                    loss = self.loss_fct(logits.view(-1), labels.view(-1).float())
+
+            outputs = [loss, *outputs]
+        return outputs
 
 class fluProfiler_v0_1(PreTrainedModel):
     """ 
