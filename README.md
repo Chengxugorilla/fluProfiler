@@ -116,6 +116,41 @@ cd src/Section1_Antigenic_space/4_Reverse_test/model_4_2024NH/
 python run_v0_1.py
 ```
 
+### 2.1 HA-only 训练入口（Legacy / v2）
+
+以下入口用于 `experiments/HA_only` 目录下的 HA-only 训练：
+
+- Legacy 训练脚本：`experiments/HA_only/train_ha_only.py`
+- v2 训练脚本：`experiments/HA_only/train_v2_ha_only.py`
+- v2 配置文件：`experiments/HA_only/config_v2_ha_only.json`
+
+#### 运行 v2 HA-only 训练
+
+```bash
+cd /home/chenyh/workspace/fluProfiler
+source "$HOME/miniconda3/etc/profile.d/conda.sh"
+conda activate fluProfiler
+python experiments/HA_only/train_v2_ha_only.py experiments/HA_only/config_v2_ha_only.json
+```
+
+#### 运行 Legacy HA-only 训练
+
+```bash
+cd /home/chenyh/workspace/fluProfiler
+source "$HOME/miniconda3/etc/profile.d/conda.sh"
+conda activate fluProfiler
+python experiments/HA_only/train_ha_only.py
+```
+
+#### v2 配置关键项
+
+`config_v2_ha_only.json` 中最常改的字段：
+
+- `experiment.model_impl`：`v2` 或 `legacy`
+- `data.data_root` / `data.season_path` / `data.embedding_root`
+- `train.epochs` / `train.batch_size` / `train.learning_rate` / `train.patience`
+- `runtime.device` / `runtime.gpu_cache_gb`
+
 ### 3. 评估模型
 
 ```python

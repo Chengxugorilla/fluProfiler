@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "experiment": {
+    "name": "ha_only_v2_baseline",
+    "model_impl": "v2",
+    "model_name": "fluProfiler_HA_only_v2",
+    "run_tag": "HA_only_v2",
+    "exp_id": null
+  },
+  "data": {
+    "data_root": "/home/chenyh/workspace/fluProfiler/data/HA_only",
+    "season_path": "split",
+    "embedding_root": "/home/chenyh/workspace/fluProfiler/data/reverse_test/embedding",
+    "sample_limit": null,
+    "add_special_token": true,
+    "use_artificial_data": false
+  },
+  "train": {
+    "epochs": 250,
+    "batch_size": 64,
+    "learning_rate": 8e-05,
+    "use_lr_schedule": true,
+    "patience": 10,
+    "seed": 42
+  },
+  "runtime": {
+    "device": "cuda:1",
+    "gpu_cache_gb": 24
+  }
+}

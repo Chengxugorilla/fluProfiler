@@ -1,0 +1,16 @@
+===== RUN CONFIG START =====
+{
+  "time": "2026-03-25 22:32:36",
+  "cfg_path": "/home/chenyh/workspace/fluProfiler/experiments/HA_only/config_v2_ha_only.json",
+  "model_impl": "v2",
+  "data_path": "/home/chenyh/workspace/fluProfiler/data/HA_only/",
+  "season_path": "split/",
+  "embedding_root": "/home/chenyh/workspace/fluProfiler/data/reverse_test/embedding",
+  "batch_size": 64,
+  "lr": 8e-05,
+  "epochs": 250,
+  "patience": 10,
+  "device": "cuda:1"
+}
+===== RUN CONFIG END =====
+
