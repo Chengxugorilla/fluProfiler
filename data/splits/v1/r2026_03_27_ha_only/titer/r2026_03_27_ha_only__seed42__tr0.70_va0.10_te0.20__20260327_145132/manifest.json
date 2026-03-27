@@ -1,0 +1,43 @@
+{
+  "mode": "titer",
+  "seed": 42,
+  "ratios": {
+    "train_ratio": 0.7000000000000001,
+    "valid_ratio": 0.1,
+    "test_ratio": 0.2
+  },
+  "counts": {
+    "all": 143029,
+    "train": 100120,
+    "valid": 14303,
+    "test": 28606
+  },
+  "overlap": {
+    "train_valid_overlap": 63,
+    "train_test_overlap": 123,
+    "valid_test_overlap": 22
+  },
+  "protocol_version": "v1",
+  "dataset_version_id": "r2026_03_27_ha_only",
+  "split_id": "r2026_03_27_ha_only__seed42__tr0.70_va0.10_te0.20__20260327_145132",
+  "source": {
+    "input_csv": "/home/chenyh/workspace/fluProfiler/data/raw/r2026_03_27_ha_only/source.csv",
+    "input_csv_sha256": "066603f8704ebd2fdb81f2d3199f72cc0753223654b5d274e6c7ec77cd4b590c",
+    "raw_version_dir": "/home/chenyh/workspace/fluProfiler/data/raw/r2026_03_27_ha_only"
+  },
+  "dataset_meta": {
+    "dataset_version_id": "r2026_03_27_ha_only",
+    "description": "HA-only training table as a protocol raw dataset",
+    "raw_csv": "/home/chenyh/workspace/fluProfiler/data/raw/r2026_03_27_ha_only/source.csv",
+    "raw_csv_sha256": "066603f8704ebd2fdb81f2d3199f72cc0753223654b5d274e6c7ec77cd4b590c",
+    "row_count": 143029,
+    "created_at": "2026-03-27T06:51:32.869518+00:00",
+    "raw_version_dir": "/home/chenyh/workspace/fluProfiler/data/raw/r2026_03_27_ha_only"
+  },
+  "paths": {
+    "train_csv": "/home/chenyh/workspace/fluProfiler/data/splits/v1/r2026_03_27_ha_only/titer/r2026_03_27_ha_only__seed42__tr0.70_va0.10_te0.20__20260327_145132/train.csv",
+    "valid_csv": "/home/chenyh/workspace/fluProfiler/data/splits/v1/r2026_03_27_ha_only/titer/r2026_03_27_ha_only__seed42__tr0.70_va0.10_te0.20__20260327_145132/valid.csv",
+    "test_csv": "/home/chenyh/workspace/fluProfiler/data/splits/v1/r2026_03_27_ha_only/titer/r2026_03_27_ha_only__seed42__tr0.70_va0.10_te0.20__20260327_145132/test.csv"
+  },
+  "created_at": "2026-03-27T06:51:34.110973+00:00"
+}

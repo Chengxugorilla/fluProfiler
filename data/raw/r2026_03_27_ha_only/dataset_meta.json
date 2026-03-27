@@ -1,0 +1,10 @@
+{
+  "dataset_version_id": "r2026_03_27_ha_only",
+  "description": "HA-only training table as a protocol raw dataset",
+  "raw_csv": "/home/chenyh/workspace/fluProfiler/data/raw/r2026_03_27_ha_only/source.csv",
+  "raw_csv_sha256": "066603f8704ebd2fdb81f2d3199f72cc0753223654b5d274e6c7ec77cd4b590c",
+  "row_count": 143029,
+  "created_at": "2026-03-27T06:54:39.711531+00:00",
+  "raw_version_dir": "/home/chenyh/workspace/fluProfiler/data/raw/r2026_03_27_ha_only",
+  "dataset_name": "hi_mix_demo"
+}

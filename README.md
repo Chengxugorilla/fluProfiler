@@ -94,7 +94,64 @@ Run artifacts are saved under `runs/`, including:
 - Checkpoints
 - Run logs / metadata
 
-## 6) Troubleshooting
+## 6) Dataset Split Tool (Independent)
+
+This repository includes a standalone split builder for the three paper split modes:
+
+- `titer`  (row-level random split)
+- `strain` (group split by strain key, default `seq_id_c`)
+- `serum`  (group split by serum key, default `seq_id_a`)
+
+Script:
+
+- `experiments/tools/build_splits.py`
+
+### Recommended Raw Data Protocol
+
+Use one directory per raw dataset version:
+
+```text
+data/raw/
+└── r2026_03_27_mix_h1h3/
+    ├── source.csv
+    └── dataset_meta.json   # auto-created/updated by script
+```
+
+Run split generation from that raw version directory:
+
+```bash
+python experiments/tools/build_splits.py \
+  --raw-version-dir data/raw/r2026_03_27_mix_h1h3 \
+  --dataset-name hi_mix_h1h3 \
+  --dataset-description "Merged H1N1 and H3N2 dataset" \
+  --protocol-version v1 \
+  --seed 42 \
+  --test-ratio 0.2 \
+  --valid-ratio 0.1 \
+  --strain-col seq_id_c \
+  --serum-col seq_id_a \
+  --split-modes titer,strain,serum
+```
+
+Generated files:
+
+```text
+data/splits/v1/hi_mix_h1h3/r2026_03_27_mix_h1h3/
+├── titer/<split_id>/{train.csv,valid.csv,test.csv,manifest.json}
+├── strain/<split_id>/{train.csv,valid.csv,test.csv,manifest.json}
+└── serum/<split_id>/{train.csv,valid.csv,test.csv,manifest.json}
+```
+
+`manifest.json` records split parameters, source checksum, dataset metadata, and overlap/leakage checks.
+
+Notes:
+
+- This utility is standalone and is **not** wired into training entrypoints.
+- You can still use `--input-csv` + `--dataset-version-id` directly if needed.
+- Use `--id-col` if your input has a stable unique row identifier.
+- `--split-modes` controls which splits are generated (for example: `titer,serum`).
+
+## 7) Troubleshooting
 
 ### CUDA Out of Memory
 
