@@ -26,6 +26,7 @@ def main(argv: list[str] | None = None):
     # - only extract --task/--config (and positional task/config as backward compat)
     # - everything else is forwarded to the selected training script (no argparse rejection)
     task = None
+    impl = None
     config = None
     forwarded: list[str] = []
 
@@ -36,6 +37,12 @@ def main(argv: list[str] | None = None):
             if i + 1 >= len(args):
                 raise SystemExit("Missing value for --task")
             task = args[i + 1]
+            i += 2
+            continue
+        if a == "--impl":
+            if i + 1 >= len(args):
+                raise SystemExit("Missing value for --impl")
+            impl = args[i + 1]
             i += 2
             continue
         if a == "--config":
@@ -58,22 +65,34 @@ def main(argv: list[str] | None = None):
     if task is None:
         raise SystemExit(
             "Missing task. Use either:\n"
-            "  --task ha_only_v2 [--config path] [extra args...]\n"
-            "  --task ha_only_legacy [extra args...]\n"
+            "  --task ha_only --impl v2 [--config path] [extra args...]\n"
+            "  --task ha_only --impl legacy [extra args...]\n"
+            "  --task hana --impl v2 [--config path] [extra args...]\n"
             "or positional:\n"
             "  ha_only_v2 [config_json] [extra args...]"
         )
 
     task = task.strip()
+    impl = (impl or "v2").strip().lower()
 
-    if task == "ha_only_legacy":
+    # Backward compatibility aliases
+    if task == "ha_only_v2":
+        task, impl = "ha_only", "v2"
+    elif task == "ha_only_legacy":
+        task, impl = "ha_only", "legacy"
+    elif task == "hana_v2":
+        task, impl = "hana", "v2"
+    elif task == "hana_legacy":
+        task, impl = "hana", "legacy"
+
+    if task == "ha_only" and impl == "legacy":
         if forwarded:
             print("[dispatch] warning: forwarding extra args to legacy trainer:", " ".join(forwarded))
         cmd = ["python", "experiments/HA_only/train_ha_only.py", *forwarded]
         _run(cmd, cwd=cwd)
         return
 
-    if task == "ha_only_v2":
+    if task == "ha_only" and impl == "v2":
         cfg = config or "experiments/HA_only/config_v2_ha_only.json"
         cfg_path = (repo_root / cfg).resolve() if not os.path.isabs(cfg) else Path(cfg)
         if not cfg_path.exists():
@@ -82,7 +101,25 @@ def main(argv: list[str] | None = None):
         _run(cmd, cwd=cwd)
         return
 
-    raise SystemExit(f"Unknown task: {task}. Expected: ha_only_legacy | ha_only_v2")
+    if task == "hana" and impl == "v2":
+        cfg = config or "experiments/HANA/config_v2_hana.json"
+        cfg_path = (repo_root / cfg).resolve() if not os.path.isabs(cfg) else Path(cfg)
+        if not cfg_path.exists():
+            raise SystemExit(f"Config not found: {cfg_path}")
+        cmd = ["python", "experiments/HANA/train_v2_hana.py", str(cfg_path), *forwarded]
+        _run(cmd, cwd=cwd)
+        return
+
+    if task == "hana" and impl == "legacy":
+        raise SystemExit(
+            "hana legacy entry is intentionally frozen and not exposed in the new dispatcher yet. "
+            "Please use: --task hana --impl v2"
+        )
+
+    raise SystemExit(
+        f"Unknown task/impl: task={task!r}, impl={impl!r}. "
+        "Expected task in {ha_only, hana} and impl in {legacy, v2}."
+    )
 
 
 if __name__ == "__main__":

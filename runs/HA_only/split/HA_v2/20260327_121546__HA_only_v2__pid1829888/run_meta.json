@@ -1,0 +1,7 @@
+{
+  "exp_id": "HA_only/split/HA_v2",
+  "season_path": "split/",
+  "device": "cuda:1",
+  "tag": "HA_only_v2",
+  "created_at": "2026-03-27T12:15:46"
+}
