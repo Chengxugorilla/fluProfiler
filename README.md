@@ -8,6 +8,44 @@
   Influenza antigenicity modeling toolkit for training and evaluation with a simple user-facing workflow.
 </p>
 
+<p align="center">
+  <a href="https://www.biorxiv.org/content/10.64898/2026.04.18.719333v1"><strong>Preprint on bioRxiv</strong></a>
+</p>
+
+<p align="center">
+  <em>This preprint has not been peer reviewed.</em>
+</p>
+
+## Framework
+
+<p align="center">
+  <img src="assets/figures/framework-overview.png" width="980" alt="Overview of the fluProfiler framework">
+</p>
+
+<p align="center">
+  <em>Adapted from our bioRxiv preprint. fluProfiler integrates sequence-based antigenic prediction, prospective vaccine candidate ranking, and diversity-driven sampling for iterative HI-guided model updating.</em>
+</p>
+
+## Benchmark Snapshot
+
+<p align="center">
+  <img src="assets/figures/generalization-results.png" width="980" alt="Generalization performance across surveillance-aligned evaluation settings">
+</p>
+
+<p align="center">
+  <em>Adapted from our bioRxiv preprint. Across surveillance-aligned titer, virus, serum, and temporal extrapolation settings, fluAgPredictor shows robust generalization and supports prospective vaccine recommendation.</em>
+</p>
+
+## Data-Efficient Model Updating
+
+<p align="center">
+  <img src="assets/figures/active-learning-performance.png" width="760" alt="Active learning improves sample efficiency over random sampling">
+</p>
+
+<p align="center">
+  <em>Adapted from our bioRxiv preprint. fluAgEnhancer reaches the same predictive target with approximately 25% fewer HI measurements than random sampling.</em>
+</p>
+
 ## 1) Environment Setup
 
 Recommended:

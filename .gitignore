@@ -17,3 +17,4 @@ __pycache__/
 *.png
 *.svg
 !assets/fluprofiler-icon.png
+!assets/figures/*.png
