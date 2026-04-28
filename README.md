@@ -5,7 +5,7 @@
 <h1 align="center">fluProfiler</h1>
 
 <p align="center">
-  Influenza antigenicity modeling toolkit for training and evaluation with a simple user-facing workflow.
+  A foundation-model-based framework for influenza antigenic profiling, vaccine strain ranking, and data-efficient antigenic surveillance.
 </p>
 
 <p align="center">
@@ -15,6 +15,15 @@
 <p align="center">
   <em>This preprint has not been peer reviewed.</em>
 </p>
+
+## Highlights
+
+- `115,927` HI measurements curated from `44` Francis Crick surveillance reports spanning `2003` to `2025SH`
+- Sequence-to-antigenic-space modeling for seasonal `H1N1` and `H3N2` using paired `HA` and `NA` sequence information
+- Strong surveillance-aligned generalization across titer missingness, virus missingness, serum missingness, and strict temporal extrapolation
+- Temporal extrapolation ranked in the top two for `28/30` season-metric evaluation units in the preprint benchmark
+- Model-derived antigenic determinants recover known epitope and receptor-binding-site biology without explicit antigenic-site priors
+- Diversity-driven active learning reaches the same predictive target with approximately `25%` fewer HI measurements than random sampling
 
 ## Framework
 
@@ -46,20 +55,56 @@
   <em>Adapted from our bioRxiv preprint. fluAgEnhancer reaches the same predictive target with approximately 25% fewer HI measurements than random sampling.</em>
 </p>
 
-## 1) Environment Setup
+## What This Repository Contains
+
+| Component | Purpose | Primary entrypoints |
+| --- | --- | --- |
+| `fluAgPredictor` | Sequence-based antigenic distance prediction and generalization benchmarking | `experiments/HA_only/train_v2_ha_only.py`, `experiments/HANA/train_v2_hana.py`, `src/fluprofiler/cli/dispatch.py` |
+| `fluVacSelector` | Prospective vaccine candidate ranking from predicted antigenic coverage | Preprint figures and downstream analysis notebooks/scripts in `paper/` and `experiments/` |
+| `fluAgEnhancer` | Diversity-driven active learning for HI prioritization and model updating | `experiments/active_learning/run_active_learning.py`, `src/fluprofiler/active_learning/` |
+| `Split builder` | Standalone generation of `titer`, `strain`, and `serum` splits | `experiments/tools/build_splits.py`, `run_dataset_split.sh` |
+| `Legacy / archived experiments` | Historical exploratory runs retained for reference, not the main recommended path | `src/deprecated/`, parts of `experiments/reverse_tests/` |
+
+## Quick Start Status
+
+This repository currently exposes the main research code and figure assets used in the bioRxiv preprint, but it is **not yet packaged as a fully self-contained pip-installable release**.
+
+Important current limitations:
+
+- No checked-in `requirements.txt`, `pyproject.toml`, or environment lockfile is present in the repository at this time.
+- The main training scripts expect external data assets, including split CSVs and embedding `.pt` files.
+- The current training entrypoints also expect `configs/args.pkl`, which is referenced by the code but not included in this repository snapshot.
+
+As a result, the most reliable immediate use of this repository is:
+
+- read the preprint and inspect the framework/results assets in this repository;
+- review the main experiment entrypoints under `experiments/HA_only/`, `experiments/HANA/`, and `experiments/tools/`;
+- reuse or adapt the code within an existing local research environment that already contains the required datasets and training assets.
+
+## Environment Setup
 
 Recommended:
 
 - Python `3.10`
 - Linux + CUDA GPU (for training speed)
 
-Create environment and install dependencies:
+Recommended baseline:
 
 ```bash
 conda create -n fluProfiler python=3.10
 conda activate fluProfiler
-pip install -r requirements.txt
 ```
+
+You will likely need a local scientific Python environment including at least:
+
+- `torch`
+- `transformers`
+- `pandas`
+- `numpy`
+- `scikit-learn`
+- `scipy`
+- `biopython`
+- `tensorboard`
 
 Verify PyTorch GPU availability (optional):
 
@@ -67,7 +112,7 @@ Verify PyTorch GPU availability (optional):
 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"
 ```
 
-## 2) Required Data Layout
+## Required Data Layout
 
 The training flow expects:
 
@@ -85,7 +130,7 @@ Check and edit the config file before running:
 - `experiments/HA_only/config_v2_ha_only.json`
 - `experiments/HANA/config_v2_hana.json`
 
-## 3) Recommended Run Method (Single Entry)
+## Recommended Run Method (Single Entry)
 
 Use the top-level script:
 
@@ -105,13 +150,18 @@ Edit parameters at the top of `run_fluprofiler.sh`:
 - `gpu_cache_gb`
 - `sample_limit` (`-1` = full data, small value = quick test)
 
-Example quick smoke test:
+Note:
+
+- the shell wrapper currently exposes fixed variables at the top of `run_fluprofiler.sh`;
+- the README example below reflects the intended usage pattern, but the wrapper is not yet a polished CLI.
+
+Example intended quick smoke test pattern:
 
 ```bash
 bash run_fluprofiler.sh --sample-limit 128 --epochs 1 --batch-size 8
 ```
 
-## 4) Direct Commands (Optional)
+## Direct Commands (Optional)
 
 If you want to bypass the shell entry:
 
@@ -130,7 +180,7 @@ PYTHONPATH=src python src/fluprofiler/cli/dispatch.py --task ha_only --impl v2
 PYTHONPATH=src python src/fluprofiler/cli/dispatch.py --task hana --impl v2
 ```
 
-## 5) Outputs
+## Outputs
 
 Run artifacts are saved under `runs/`, including:
 
@@ -138,7 +188,7 @@ Run artifacts are saved under `runs/`, including:
 - Checkpoints
 - Run logs / metadata
 
-## 6) Dataset Split Tool (Independent)
+## Dataset Split Tool (Independent)
 
 This repository includes a standalone split builder for the three paper split modes:
 
@@ -195,7 +245,7 @@ Notes:
 - Use `--id-col` if your input has a stable unique row identifier.
 - `--split-modes` controls which splits are generated (for example: `titer,serum`).
 
-## 7) Troubleshooting
+## Troubleshooting
 
 ### CUDA Out of Memory
 
