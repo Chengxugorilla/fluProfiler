@@ -16,3 +16,4 @@ __pycache__/
 *.fasta
 *.png
 *.svg
+!assets/fluprofiler-icon.png

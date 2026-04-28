@@ -1,6 +1,12 @@
-# fluProfiler
+<p align="center">
+  <img src="assets/fluprofiler-icon.png" width="180" alt="fluProfiler icon">
+</p>
 
-Influenza antigenicity modeling toolkit for training and evaluation with a simple user-facing workflow.
+<h1 align="center">fluProfiler</h1>
+
+<p align="center">
+  Influenza antigenicity modeling toolkit for training and evaluation with a simple user-facing workflow.
+</p>
 
 ## 1) Environment Setup
 
