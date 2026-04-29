@@ -3,19 +3,28 @@
 /dataset/
 /runs/
 /Figure/
+
+/src/H5_test/
+
+__pycache__/
+.ipynb_checkpoints/
+
 *.pkl
 *.csv
 *.npy
-__pycache__/
-.ipynb_checkpoints/
-/src/H5_test/
 *.pt
 *.pth
 *.fasta
 *.zip
 *.tar
-*.fasta
 *.png
 *.svg
+
+# Keep repository figures and icons
 !assets/fluprofiler-icon.png
 !assets/figures/*.png
+
+# Local text outputs only; avoid globally ignoring all .txt files
+*.log
+*.out
+*.err
