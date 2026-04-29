@@ -6,7 +6,6 @@ implementation via `model_impl` in JSON config.
 """
 
 import json
-import pickle
 import random
 import sys
 from datetime import datetime
@@ -42,6 +41,7 @@ from data.loaders import load_embedding  # noqa: E402
 from evaluation.metrics import EarlyStopping, print_exams  # noqa: E402
 from models.architectures import fluProfiler_Config, fluProfiler_HA  # noqa: E402
 from fluprofiler.models_v2 import BatchInput, fluProfiler_HA_only_v2  # noqa: E402
+from fluprofiler.utils.model_args import build_model_args  # noqa: E402
 
 
 def _ensure_trailing_slash(path: str) -> str:
@@ -315,9 +315,7 @@ def main():
 
     config_dict = json.loads((repo_root / "configs" / "config_dict.json").read_text(encoding="utf-8"))
     flu_config = fluProfiler_Config.from_dict(config_dict)
-    with open(repo_root / "configs" / "args.pkl", "rb") as f:
-        flu_args = pickle.load(f)
-    flu_args.output_mode = "regression"
+    flu_args = build_model_args(flu_config, overrides=cfg.get("model_args"))
 
     if model_impl == "v2":
         model = fluProfiler_HA_only_v2(config=flu_config, args=flu_args)
@@ -344,6 +342,7 @@ def main():
         "epochs": epochs,
         "patience": patience,
         "device": str(device),
+        "model_args": vars(flu_args),
     }
     with open(log_path, "a", encoding="utf-8") as f:
         f.write("===== RUN CONFIG START =====\n")

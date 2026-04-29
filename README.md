@@ -16,6 +16,10 @@
   <em>This preprint has not been peer reviewed.</em>
 </p>
 
+<p align="center">
+  <a href="https://github.com/Chengxugorilla/fluProfiler"><strong>Project Repository</strong></a> · <strong>Citation information to be added after journal decision</strong>
+</p>
+
 ## Highlights
 
 - `115,927` HI measurements curated from `44` Francis Crick surveillance reports spanning `2003` to `2025SH`
@@ -65,6 +69,24 @@
 | `Split builder` | Standalone generation of `titer`, `strain`, and `serum` splits | `experiments/tools/build_splits.py`, `run_dataset_split.sh` |
 | `Legacy / archived experiments` | Historical exploratory runs retained for reference, not the main recommended path | `src/deprecated/`, parts of `experiments/reverse_tests/` |
 
+## Project Map
+
+| Path | Role in the current repository |
+| --- | --- |
+| `src/fluprofiler/cli/dispatch.py` | Main CLI dispatcher for the recommended `ha_only` and `hana` training paths |
+| `experiments/HA_only/` | Primary HA-only training and inference scripts used in the current restructured workflow |
+| `experiments/HANA/` | Primary HA+NA training scripts for the current restructured workflow |
+| `src/fluprofiler/models/` | Legacy and comparative model architectures, pooling layers, and loss utilities |
+| `src/fluprofiler/models_v2/` | Newer v2 model I/O contracts and streamlined HA / HANA implementations |
+| `src/fluprofiler/active_learning/` | Modular active-learning utilities, strategies, and loop abstractions |
+| `experiments/active_learning/` | Executable active-learning experiment scripts and notebooks |
+| `experiments/tools/build_splits.py` | Standalone split builder for paper-aligned `titer`, `strain`, and `serum` protocols |
+| `data/raw/` | Versioned raw dataset metadata and protocol-oriented raw dataset layout |
+| `data/splits/` | Generated split manifests and split outputs used for reproducible partitioning |
+| `runs/` | Stored run artifacts, metadata, and TensorBoard logs from previous experiments |
+| `paper/` | Figure-generation notebooks, paper assets, and supplementary materials |
+| `src/deprecated/` | Archived historical experiments retained for provenance and reference |
+
 ## Quick Start Status
 
 This repository currently exposes the main research code and figure assets used in the bioRxiv preprint, but it is **not yet packaged as a fully self-contained pip-installable release**.
@@ -80,6 +102,16 @@ As a result, the most reliable immediate use of this repository is:
 - read the preprint and inspect the framework/results assets in this repository;
 - review the main experiment entrypoints under `experiments/HA_only/`, `experiments/HANA/`, and `experiments/tools/`;
 - reuse or adapt the code within an existing local research environment that already contains the required datasets and training assets.
+
+## Reproducibility Notes
+
+- The repository includes core source code, figure assets, split manifests, and selected run metadata used to support the bioRxiv preprint.
+- The repository does **not** currently include a complete, one-command reproducibility environment specification such as `requirements.txt`, `pyproject.toml`, or a frozen conda environment file.
+- The repository also does **not** currently include all runtime training assets needed for direct execution, including embedding `.pt` files, the full split CSV payloads, or `configs/args.pkl`.
+- Some paths inside configs, manifests, and historical run metadata still reflect the original local research environment used during development and benchmarking.
+- The `data/splits/` tree provides protocol and manifest examples that document how dataset partitioning was performed, even when the full underlying raw data are not mirrored in the repository.
+- The preprint states that processed matched datasets, source data, and code are available through this repository and/or supplementary materials; readers should interpret the GitHub repository as the code-centered companion rather than a fully self-contained binary release.
+- Sequence data provenance is tied to GISAID-derived records and Francis Crick HI surveillance reports, so downstream redistribution and reconstruction may depend on the applicable source-data usage terms.
 
 ## Environment Setup
 

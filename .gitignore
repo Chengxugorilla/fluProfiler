@@ -1,6 +1,7 @@
 /trained_model/
 /model/
 /dataset/
+/runs/
 /Figure/
 *.pkl
 *.csv

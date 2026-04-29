@@ -23,6 +23,20 @@
     "patience": 10,
     "seed": 42
   },
+  "model_args": {
+    "output_mode": "regression",
+    "fusion_type": "concat",
+    "task_level_type": "seq_level",
+    "prepend_bos": false,
+    "append_eos": false,
+    "sigmoid": false,
+    "loss_type": null,
+    "ignore_index": -100,
+    "weight_decay": 0.01,
+    "beta1": 0.9,
+    "beta2": 0.98,
+    "adam_epsilon": 1e-06
+  },
   "runtime": {
     "device": "cuda:1",
     "gpu_cache_gb": 24
