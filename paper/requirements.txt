@@ -1,0 +1,26 @@
+# Core notebook/runtime stack
+jupyter
+nbconvert
+notebook
+ipykernel
+
+# Data and scientific computing
+numpy
+pandas
+scipy
+scikit-learn
+joblib
+
+# Plotting
+matplotlib
+seaborn
+plotly
+statannotations
+brokenaxes
+
+# Deep learning / model loading
+torch
+transformers
+huggingface_hub
+tqdm
+
