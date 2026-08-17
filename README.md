@@ -1,3 +1,5 @@
+
+
 <p align="center">
   <img src="assets/fluprofiler-icon.png" width="180" alt="fluProfiler icon">
 </p>
@@ -148,7 +150,7 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_coun
 
 The training flow expects:
 
-- Split CSV files: `train.csv`, `test.csv`
+- Split CSV files: `train.csv`, `valid.csv`, `test.csv`
 - Embedding tensors: `matrix_<seq_id>.pt`
 - Reverse-test style directories under `data/reverse_test/`
 
