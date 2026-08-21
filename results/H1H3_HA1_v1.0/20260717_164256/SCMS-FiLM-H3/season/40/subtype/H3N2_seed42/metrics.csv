@@ -1,0 +1,6 @@
+epoch,learning_rate,train_loss,valid_pooled_mae,valid_pooled_mse,valid_pooled_pearson,valid_pooled_spearman,valid_per_serum_mae_mean,valid_per_serum_mae_median,valid_within_serum_pearson_mean,valid_within_serum_spearman_mean,valid_serum_bias_mean,valid_serum_bias_abs_mean,valid_loss,test_pooled_mae,test_pooled_mse,test_pooled_pearson,test_pooled_spearman,test_per_serum_mae_mean,test_per_serum_mae_median,test_within_serum_pearson_mean,test_within_serum_spearman_mean,test_serum_bias_mean,test_serum_bias_abs_mean,test_loss
+1,0.0001,0.9342,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0335,1.7671,0.5511,0.5629,1.2781,1.0285,0.4401,0.4402,0.8714,0.9084,0.9079
+2,0.0001,0.7192,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.8343,1.1757,0.5926,0.6311,1.0861,0.8303,0.4626,0.4559,0.3199,0.6364,0.6868
+3,0.0001,0.6463,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.8153,1.122,0.6266,0.6449,1.0299,0.8394,0.4637,0.4648,0.343,0.5927,0.6608
+4,0.0,0.6003,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.9102,1.351,0.6543,0.673,1.1283,0.8879,0.4939,0.4818,0.6789,0.7411,0.7494
+5,0.0,0.5673,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.8072,1.087,0.6607,0.6763,1.019,0.8325,0.5025,0.4906,0.419,0.5678,0.6443

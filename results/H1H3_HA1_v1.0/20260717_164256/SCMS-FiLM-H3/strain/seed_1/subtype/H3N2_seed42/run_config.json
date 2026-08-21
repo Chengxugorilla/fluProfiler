@@ -1,0 +1,103 @@
+{
+  "created_at": "2026-08-21T06:04:31",
+  "model": "SerumMutationSet-Minus",
+  "data_dir": "/home/chenyh/workspace/fluProfiler/data/dataset/H1H3_HA1_v1.0/splited/20260717_164256/strain/seed_1",
+  "embedding_dir": "/home/chenyh/workspace/fluProfiler/data/embedding/files",
+  "ha_distance_matrix": "/home/chenyh/workspace/fluProfiler/ha1_distance_no_bias_329.npy",
+  "distance_matrix_shape": [
+    329,
+    329
+  ],
+  "output_dir": "/home/chenyh/workspace/fluProfiler/results/H1H3_HA1_v1.0/20260717_164256/SCMS-FiLM-H3/strain/seed_1/subtype/H3N2_seed42",
+  "type_filter": "H3N2",
+  "task_cols": [
+    "seq_id_a",
+    "serumPassCat",
+    "serumName"
+  ],
+  "refit_train_valid": true,
+  "task_overlap_counts": {
+    "train_valid": 0,
+    "train_test": 165,
+    "valid_test": 0
+  },
+  "row_counts": {
+    "train": 57371,
+    "valid": 0,
+    "test": 6414
+  },
+  "training_config": {
+    "batch_size": 1,
+    "max_queries_per_task": 32,
+    "shuffle_queries_within_task_each_epoch": false,
+    "full_task_bias_loss": false,
+    "optimizer_step_unit": "query_chunk",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "lr_scheduler": "cosine",
+    "lr_min": 1e-06,
+    "early_stopping_patience": -1
+  },
+  "model_config": {
+    "hidden_size": 2560,
+    "site_dim": 64,
+    "site_bottleneck_dim": 0,
+    "background_dim": 64,
+    "mutation_dim": 128,
+    "position_dim": 32,
+    "amino_acid_dim": 16,
+    "presence_dim": 4,
+    "max_position_embeddings": 329,
+    "amino_acid_vocab_size": 23,
+    "passage_vocab_size": 4,
+    "use_passage_pair_feature": true,
+    "passage_pair_vocab_size": 16,
+    "passage_dim": 8,
+    "subtype_vocab_size": 1,
+    "subtype_dim": 0,
+    "theta_dim": 128,
+    "mutation_attention_heads": 4,
+    "mutation_attention_layers": 1,
+    "mutation_ffn_dim": 256,
+    "attention_dropout": 0.1,
+    "attention_alpha_init": 0.05,
+    "attention_tau_init": 8.0,
+    "predictor_hidden_dim": 256,
+    "predictor_dropout": 0.1,
+    "label_weight_thresholds": [
+      2.0,
+      4.0,
+      6.0
+    ],
+    "label_weight_values": [
+      1.0,
+      1.3,
+      1.8,
+      2.5
+    ],
+    "rank_loss_weight": 0.0,
+    "rank_loss_margin": 0.1,
+    "rank_loss_min_label_delta": 0.0,
+    "zero_init_film": true,
+    "use_film_beta": true,
+    "use_pool_mutation_count": true,
+    "use_attention_pool": true,
+    "use_predictor_mutation_count": true,
+    "use_background_to_mutation": false,
+    "bypass_mutation_transformer": false,
+    "task_bias_loss_weight": 0.1,
+    "direct_background": true
+  },
+  "passage_to_id": {
+    "unknown": 0,
+    "both": 1,
+    "cell": 2,
+    "egg": 3
+  },
+  "subtype_to_id": {
+    "constant": 0
+  },
+  "loss": "weighted_huber",
+  "epochs": 100,
+  "seed": 42
+}
