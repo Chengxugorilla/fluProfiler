@@ -1,0 +1,147 @@
+"""Analyze token-level pooling attention from a SerumGate all-attention model."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import torch
+
+
+_THIS_FILE = Path(__file__).resolve()
+_REPO_ROOT = _THIS_FILE.parents[2]
+_SRC_DIR = str(_REPO_ROOT / "src")
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
+
+from fluprofiler.models.serum_gate_minus_all_attention_model import (  # noqa: E402
+    SerumGateMinusAllAttentionModel,
+)
+
+
+def collect_unique_virus_sequences(csv_path: Path, subtype: str) -> pd.DataFrame:
+    """Collect one deterministic record per virus-side HA sequence ID."""
+    csv_path = Path(csv_path).expanduser().resolve()
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"Dataset CSV does not exist: {csv_path}")
+
+    columns = pd.read_csv(csv_path, nrows=0).columns.tolist()
+    subtype_column = "Type" if "Type" in columns else "virusType" if "virusType" in columns else None
+    if subtype_column is None:
+        raise ValueError("Dataset must contain Type or virusType")
+    required = {subtype_column, "seq_id_c", "virusHA"}
+    missing = sorted(required - set(columns))
+    if missing:
+        raise ValueError(f"Dataset is missing required column(s): {', '.join(missing)}")
+
+    metadata_columns = [name for name in ("virusName", "virusDate", "virusPassCat") if name in columns]
+    usecols = [subtype_column, "seq_id_c", "virusHA", *metadata_columns]
+    target = str(subtype).strip().casefold()
+    records: dict[str, dict[str, object]] = {}
+
+    for chunk in pd.read_csv(csv_path, usecols=usecols, chunksize=10_000):
+        chunk = chunk[chunk[subtype_column].astype(str).str.strip().str.casefold() == target]
+        for row in chunk.to_dict(orient="records"):
+            seq_id = str(row["seq_id_c"]).strip()
+            sequence = str(row["virusHA"]).strip()
+            if not seq_id or seq_id.casefold() == "nan" or not sequence or sequence.casefold() == "nan":
+                raise ValueError("Filtered rows must contain seq_id_c and virusHA")
+            if seq_id in records:
+                if records[seq_id]["virusHA"] != sequence:
+                    raise ValueError(f"{seq_id} maps to multiple virusHA sequences")
+                records[seq_id]["occurrence_count"] = int(records[seq_id]["occurrence_count"]) + 1
+                continue
+            record: dict[str, object] = {
+                "seq_id_c": seq_id,
+                "virusHA": sequence,
+                "occurrence_count": 1,
+            }
+            for column in metadata_columns:
+                record[column] = row[column]
+            records[seq_id] = record
+
+    if not records:
+        raise ValueError(f"No virus HA sequences found for subtype {subtype!r}")
+    return pd.DataFrame(records.values()).reset_index(drop=True)
+
+
+def validate_attention(
+    attention: np.ndarray,
+    expected_rows: int,
+    token_count: int,
+) -> dict[str, float | int]:
+    """Validate a token-attention probability matrix."""
+    values = np.asarray(attention)
+    expected_shape = (int(expected_rows), int(token_count))
+    if values.shape != expected_shape:
+        raise ValueError(f"Attention shape must be {expected_shape}, got {values.shape}")
+    if not np.isfinite(values).all():
+        raise ValueError("Attention contains non-finite values")
+    if (values < 0).any():
+        raise ValueError("Attention contains negative values")
+    row_sum_error = np.abs(values.sum(axis=1) - 1.0)
+    max_row_sum_error = float(row_sum_error.max(initial=0.0))
+    if max_row_sum_error > 1e-6:
+        raise ValueError(f"Attention rows must sum to one; maximum error is {max_row_sum_error:.3g}")
+    return {
+        "row_count": int(values.shape[0]),
+        "token_count": int(values.shape[1]),
+        "minimum_attention": float(values.min()),
+        "maximum_attention": float(values.max()),
+        "max_row_sum_error": max_row_sum_error,
+    }
+
+
+def summarize_attention(
+    attention: np.ndarray,
+    token_count: int,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Summarize equally weighted per-sequence token attention."""
+    values = np.asarray(attention, dtype=np.float64)
+    if values.ndim != 2 or values.shape[1] != token_count or values.shape[0] == 0:
+        raise ValueError(f"attention must have nonzero shape [sequences, {token_count}]")
+
+    token_index = np.arange(token_count)
+    token_labels = ["BOS", *[f"AA_{idx}" for idx in range(1, token_count - 1)], "EOS"]
+    token_types = ["special", *(["amino_acid"] * (token_count - 2)), "special"]
+    aa_positions: list[int | None] = [None, *range(1, token_count - 1), None]
+    top1_counts = np.bincount(np.argmax(values, axis=1), minlength=token_count)
+    top_n = min(5, token_count)
+    top_indices = np.argsort(values, axis=1, kind="stable")[:, -top_n:]
+    top5_counts = np.bincount(top_indices.ravel(), minlength=token_count)
+    quantiles = np.quantile(values, [0.05, 0.25, 0.75, 0.95], axis=0)
+
+    summary = pd.DataFrame(
+        {
+            "token_index": token_index,
+            "token_label": token_labels,
+            "token_type": token_types,
+            "aa_position": pd.array(aa_positions, dtype="Int64"),
+            "count": values.shape[0],
+            "mean": values.mean(axis=0),
+            "median": np.median(values, axis=0),
+            "std": values.std(axis=0),
+            "min": values.min(axis=0),
+            "max": values.max(axis=0),
+            "q05": quantiles[0],
+            "q25": quantiles[1],
+            "q75": quantiles[2],
+            "q95": quantiles[3],
+            "top1_count": top1_counts,
+            "top5_count": top5_counts,
+        }
+    )
+    ranked = summary.sort_values(["mean", "token_index"], ascending=[False, True]).reset_index(drop=True)
+    ranked.insert(0, "rank", np.arange(1, token_count + 1))
+    return summary, ranked
