@@ -1,5 +1,7 @@
 # Crick H1/H3 消融数据集构建与训练流程
 
+
+# E1
 以下流程从已有的 `processed/source.csv` 开始。每次只处理一个亚型；以下以 H3N2 为例。
 
 ```bash
@@ -113,7 +115,7 @@ nohup conda run --no-capture-output -n lucavirus python get_embedding.py \
 ```bash
 cd /mnt/zzbnew/peixunban/chenyihao/fluProfiler
 
-VIEW=HA
+VIEW=HA1
 SUBTYPE=H3N2
 
 mkdir -p "results/H1H3_ablation/${SUBTYPE}/${VIEW}/launch_logs"
@@ -166,10 +168,11 @@ run_season 33 0
 run_season 34 1
 ```
 
+血清
 ```bash
 cd /mnt/zzbnew/peixunban/chenyihao/fluProfiler
 
-VIEW=HA
+VIEW=HA1
 SUBTYPE=H3N2
 
 mkdir -p "results/H1H3_ablation/${SUBTYPE}/${VIEW}/launch_logs"
@@ -218,8 +221,240 @@ run_serum () {
     > "results/H1H3_ablation/${SUBTYPE}/${VIEW}/launch_logs/serum_seed_${seed}.log" 2>&1 &
 }
 
-run_serum 88 0
-run_serum 99 1
+run_serum 88 2
+run_serum 99 3
 ```
 
-待 HA 的四个训练完成后，将上面代码块中的 `VIEW=HA` 改为 `VIEW=HA1`，再运行一次。
+
+# E2
+```bash
+cd /mnt/zzbnew/peixunban/chenyihao/fluProfiler
+
+VIEW=HA1
+SUBTYPE=H3N2
+
+mkdir -p "results/H1H3_ablation/${SUBTYPE}/${VIEW}/E2_all_site/launch_logs"
+
+run_season () {
+  local season="$1"
+  local gpu="$2"
+
+  CUDA_VISIBLE_DEVICES="$gpu" nohup /home/chenyihao/miniconda3/bin/conda run --no-capture-output -n fluProfiler python \
+    experiments/serum_gate/train_serum_all_site.py \
+    --data-dir "data/dataset/H1H3_ablation/main/splits/${SUBTYPE}/season/${season}/${VIEW}" \
+    --embedding-dir "data/dataset/H1H3_ablation/main/embedding/${SUBTYPE}/${VIEW}" \
+    --ha-distance-matrix ha1_distance_no_bias_567.npy \
+    --output-dir "results/H1H3_ablation/${SUBTYPE}/${VIEW}/E2_all_site/season/${season}" \
+    --type "${SUBTYPE}" \
+    --refit-train-valid \
+    --batch-size 1 \
+    --max-queries-per-task 32 \
+    --epochs 5 \
+    --learning-rate 1e-4 \
+    --weight-decay 0.01 \
+    --lr-scheduler cosine \
+    --lr-min 1e-6 \
+    --site-dim 64 \
+    --background-dim 64 \
+    --mutation-dim 128 \
+    --position-dim 32 \
+    --amino-acid-dim 16 \
+    --presence-dim 4 \
+    --theta-dim 128 \
+    --mutation-attention-heads 4 \
+    --mutation-attention-layers 1 \
+    --mutation-ffn-dim 256 \
+    --attention-dropout 0.1 \
+    --attention-alpha-init 0.05 \
+    --attention-tau-init 8.0 \
+    --predictor-hidden-dim 256 \
+    --predictor-dropout 0.1 \
+    --zero-init-film \
+    --direct-background \
+    --no-use-background-to-mutation \
+    --task-bias-loss-weight 0.1 \
+    --seed 42 \
+    --device cuda:0 \
+    --gpu-cache-gb 24 \
+    > "results/H1H3_ablation/${SUBTYPE}/${VIEW}/E2_all_site/launch_logs/season_${season}.log" 2>&1 &
+}
+
+run_season 33 0
+run_season 34 1
+```
+serum
+```bash
+cd /mnt/zzbnew/peixunban/chenyihao/fluProfiler
+
+VIEW=HA1
+SUBTYPE=H3N2
+
+mkdir -p "results/H1H3_ablation/${SUBTYPE}/${VIEW}/E2_all_site/launch_logs"
+
+run_serum () {
+  local seed="$1"
+  local gpu="$2"
+
+  CUDA_VISIBLE_DEVICES="$gpu" nohup /home/chenyihao/miniconda3/bin/conda run --no-capture-output -n fluProfiler python \
+    experiments/serum_gate/train_serum_all_site.py \
+    --data-dir "data/dataset/H1H3_ablation/main/splits/${SUBTYPE}/serum/seed_${seed}/${VIEW}" \
+    --embedding-dir "data/dataset/H1H3_ablation/main/embedding/${SUBTYPE}/${VIEW}" \
+    --ha-distance-matrix ha1_distance_no_bias_567.npy \
+    --output-dir "results/H1H3_ablation/${SUBTYPE}/${VIEW}/E2_all_site/serum/seed_${seed}" \
+    --type "${SUBTYPE}" \
+    --refit-train-valid \
+    --batch-size 1 \
+    --max-queries-per-task 32 \
+    --epochs 50 \
+    --learning-rate 1e-4 \
+    --weight-decay 0.01 \
+    --lr-scheduler cosine \
+    --lr-min 1e-6 \
+    --site-dim 64 \
+    --background-dim 64 \
+    --mutation-dim 128 \
+    --position-dim 32 \
+    --amino-acid-dim 16 \
+    --presence-dim 4 \
+    --theta-dim 128 \
+    --mutation-attention-heads 4 \
+    --mutation-attention-layers 1 \
+    --mutation-ffn-dim 256 \
+    --attention-dropout 0.1 \
+    --attention-alpha-init 0.05 \
+    --attention-tau-init 8.0 \
+    --predictor-hidden-dim 256 \
+    --predictor-dropout 0.1 \
+    --zero-init-film \
+    --direct-background \
+    --no-use-background-to-mutation \
+    --task-bias-loss-weight 0.1 \
+    --seed 42 \
+    --device cuda:0 \
+    --gpu-cache-gb 24 \
+    > "results/H1H3_ablation/${SUBTYPE}/${VIEW}/E2_all_site/launch_logs/serum_seed_${seed}.log" 2>&1 &
+}
+
+run_serum 88 2
+run_serum 99 3
+```
+
+# E3
+
+E3 在 E1 的 HA1 mutation-set baseline 上仅关闭 mutation Transformer，其他数据、模型组件和超参数保持不变。`--bypass-mutation-transformer` 会保留 Transformer 的初始化过程，但在 forward 中跳过它，以尽量维持与 baseline 相同的随机数轨迹。
+
+season
+```bash
+cd /mnt/zzbnew/peixunban/chenyihao/fluProfiler
+
+VIEW=HA1
+SUBTYPE=H3N2
+
+mkdir -p "results/H1H3_ablation/${SUBTYPE}/${VIEW}/E3_no_transformer/launch_logs"
+
+run_season () {
+  local season="$1"
+  local gpu="$2"
+
+  CUDA_VISIBLE_DEVICES="$gpu" nohup /home/chenyihao/miniconda3/bin/conda run --no-capture-output -n fluProfiler python \
+    experiments/serum_gate/train_serum_mutation_set.py \
+    --data-dir "data/dataset/H1H3_ablation/main/splits/${SUBTYPE}/season/${season}/${VIEW}" \
+    --embedding-dir "data/dataset/H1H3_ablation/main/embedding/${SUBTYPE}/${VIEW}" \
+    --ha-distance-matrix ha1_distance_no_bias_567.npy \
+    --output-dir "results/H1H3_ablation/${SUBTYPE}/${VIEW}/E3_no_transformer/season/${season}" \
+    --type "${SUBTYPE}" \
+    --refit-train-valid \
+    --batch-size 1 \
+    --max-queries-per-task 32 \
+    --epochs 5 \
+    --learning-rate 1e-4 \
+    --weight-decay 0.01 \
+    --lr-scheduler cosine \
+    --lr-min 1e-6 \
+    --site-dim 64 \
+    --background-dim 64 \
+    --mutation-dim 128 \
+    --position-dim 32 \
+    --amino-acid-dim 16 \
+    --presence-dim 4 \
+    --theta-dim 128 \
+    --mutation-attention-heads 4 \
+    --mutation-attention-layers 1 \
+    --mutation-ffn-dim 256 \
+    --attention-dropout 0.1 \
+    --attention-alpha-init 0.05 \
+    --attention-tau-init 8.0 \
+    --predictor-hidden-dim 256 \
+    --predictor-dropout 0.1 \
+    --zero-init-film \
+    --direct-background \
+    --no-use-background-to-mutation \
+    --bypass-mutation-transformer \
+    --task-bias-loss-weight 0.1 \
+    --seed 42 \
+    --device cuda:0 \
+    --gpu-cache-gb 24 \
+    > "results/H1H3_ablation/${SUBTYPE}/${VIEW}/E3_no_transformer/launch_logs/season_${season}.log" 2>&1 &
+}
+
+run_season 33 0
+run_season 34 1
+```
+
+serum
+```bash
+cd /mnt/zzbnew/peixunban/chenyihao/fluProfiler
+
+VIEW=HA1
+SUBTYPE=H3N2
+
+mkdir -p "results/H1H3_ablation/${SUBTYPE}/${VIEW}/E3_no_transformer/launch_logs"
+
+run_serum () {
+  local seed="$1"
+  local gpu="$2"
+
+  CUDA_VISIBLE_DEVICES="$gpu" nohup /home/chenyihao/miniconda3/bin/conda run --no-capture-output -n fluProfiler python \
+    experiments/serum_gate/train_serum_mutation_set.py \
+    --data-dir "data/dataset/H1H3_ablation/main/splits/${SUBTYPE}/serum/seed_${seed}/${VIEW}" \
+    --embedding-dir "data/dataset/H1H3_ablation/main/embedding/${SUBTYPE}/${VIEW}" \
+    --ha-distance-matrix ha1_distance_no_bias_567.npy \
+    --output-dir "results/H1H3_ablation/${SUBTYPE}/${VIEW}/E3_no_transformer/serum/seed_${seed}" \
+    --type "${SUBTYPE}" \
+    --refit-train-valid \
+    --batch-size 1 \
+    --max-queries-per-task 32 \
+    --epochs 50 \
+    --learning-rate 1e-4 \
+    --weight-decay 0.01 \
+    --lr-scheduler cosine \
+    --lr-min 1e-6 \
+    --site-dim 64 \
+    --background-dim 64 \
+    --mutation-dim 128 \
+    --position-dim 32 \
+    --amino-acid-dim 16 \
+    --presence-dim 4 \
+    --theta-dim 128 \
+    --mutation-attention-heads 4 \
+    --mutation-attention-layers 1 \
+    --mutation-ffn-dim 256 \
+    --attention-dropout 0.1 \
+    --attention-alpha-init 0.05 \
+    --attention-tau-init 8.0 \
+    --predictor-hidden-dim 256 \
+    --predictor-dropout 0.1 \
+    --zero-init-film \
+    --direct-background \
+    --no-use-background-to-mutation \
+    --bypass-mutation-transformer \
+    --task-bias-loss-weight 0.1 \
+    --seed 42 \
+    --device cuda:0 \
+    --gpu-cache-gb 24 \
+    > "results/H1H3_ablation/${SUBTYPE}/${VIEW}/E3_no_transformer/launch_logs/serum_seed_${seed}.log" 2>&1 &
+}
+
+run_serum 88 2
+run_serum 99 3
+```
