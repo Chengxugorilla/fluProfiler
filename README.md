@@ -5,19 +5,11 @@
 <h1 align="center">fluProfiler</h1>
 
 <p align="center">
-  A foundation-model-based framework for influenza antigenic profiling, vaccine strain ranking, and data-efficient antigenic surveillance.
+  Transferable antigenic inference for influenza A(H3N2) from HA1 sequence context, without virus- or antiserum-specific identity terms.
 </p>
 
 <p align="center">
-  <a href="https://www.biorxiv.org/content/10.64898/2026.04.18.719333v1"><strong>Preprint on bioRxiv</strong></a>
-</p>
-
-<p align="center">
-  <em>This preprint has not been peer reviewed.</em>
-</p>
-
-<p align="center">
-  <a href="https://github.com/Chengxugorilla/fluProfiler"><strong>Project Repository</strong></a> · <strong>Citation information to be added after journal decision</strong>
+  <a href="https://github.com/Chengxugorilla/fluProfiler"><strong>Project Repository</strong></a> · <strong>Citation information will be added after journal publication</strong>
 </p>
 
 ## Hosted Web Service
@@ -26,114 +18,119 @@ A public fluProfiler web service is being prepared. The production URL and serve
 
 ## Highlights
 
-- `115,927` HI measurements curated from `44` Francis Crick surveillance reports spanning `2003` to `2025SH`
-- Sequence-to-antigenic-space modeling for seasonal `H1N1` and `H3N2` using paired `HA` and `NA` sequence information
-- Strong surveillance-aligned generalization across titer missingness, virus missingness, serum missingness, and strict temporal extrapolation
-- Temporal extrapolation ranked in the top two for `28/30` season-metric evaluation units in the preprint benchmark
-- Model-derived antigenic determinants recover known epitope and receptor-binding-site biology without explicit antigenic-site priors
-- Diversity-driven active learning reaches the same predictive target with approximately `25%` fewer HI measurements than random sampling
+- `63,785` paired H3N2 HI measurements from `42` Francis Crick surveillance reports spanning `2006SH` to `2025SH`
+- HA1 sequence-context modeling of reference-to-query amino-acid changes, with passage information but without virus- or antiserum-identity inputs
+- Robust prediction for completely held-out antiserum conditions across ten matched evaluation splits
+- First-place performance in all `30/30` season-metric units across six prospective seasonal evaluations
+- Model-derived substitution effects enriched in established H3 antigenic epitopes (`32/40` top-ranked substitutions; permutation `P = 0.0157`)
+- Prospective antigenicity-based ranking places WHO-recommended H3N2 strains near the top across consecutive vaccine-composition consultations
 
-## Framework
+## Study Overview
 
 <p align="center">
-  <img src="assets/figures/framework-overview.png" width="980" alt="Overview of the fluProfiler framework">
+  <img src="assets/figures/manuscript-figure-1.png" width="980" alt="Overview of the current fluProfiler H3N2 framework">
 </p>
 
 <p align="center">
-  <em>Adapted from our bioRxiv preprint. fluProfiler integrates sequence-based antigenic prediction, prospective vaccine candidate ranking, and diversity-driven sampling for iterative HI-guided model updating.</em>
+  <em>fluProfiler learns pairwise antigenic relationships from HA1 sequence context and passage information. The current study evaluates transfer to held-out sera and future seasons, followed by residue-level interpretation and prospective vaccine-candidate ranking.</em>
 </p>
 
-## Benchmark Snapshot
+## Generalization Benchmark
 
 <p align="center">
-  <img src="assets/figures/generalization-results.png" width="980" alt="Generalization performance across surveillance-aligned evaluation settings">
-</p>
-
-<p align="center">
-  <em>Adapted from our bioRxiv preprint. Across surveillance-aligned titer, virus, serum, and temporal extrapolation settings, fluAgPredictor shows robust generalization and supports prospective vaccine recommendation.</em>
-</p>
-
-## Data-Efficient Model Updating
-
-<p align="center">
-  <img src="assets/figures/active-learning-performance.png" width="760" alt="Active learning improves sample efficiency over random sampling">
+  <img src="assets/figures/manuscript-figure-2.png" width="980" alt="Held-out-serum and prospective seasonal evaluation of fluProfiler">
 </p>
 
 <p align="center">
-  <em>Adapted from our bioRxiv preprint. fluAgEnhancer reaches the same predictive target with approximately 25% fewer HI measurements than random sampling.</em>
+  <em>Across ten held-out-serum splits, fluProfiler is compared with identity-free AdaBoost and Nextflu baselines. In six rolling seasonal evaluations, fluProfiler ranks first for all five reported metrics in every season.</em>
+</p>
+
+## Biological Interpretation
+
+<p align="center">
+  <img src="assets/figures/manuscript-figure-3.png" width="980" alt="HA1 mutation-reversion effects and enrichment in classical antigenic epitopes">
+</p>
+
+<p align="center">
+  <em>Mutation-reversion analysis identifies HA1 substitutions with large model-predicted antigenic effects and tests their enrichment in the classical H3 A–E antigenic epitopes.</em>
+</p>
+
+## Prospective Vaccine-Candidate Ranking
+
+<p align="center">
+  <img src="assets/figures/manuscript-figure-4.png" width="980" alt="Prospective H3N2 vaccine-candidate ranking and comparison with WHO recommendations">
+</p>
+
+<p align="center">
+  <em>Candidate strains are ranked by their mean predicted antigenic distance to the contemporaneous circulating-virus panel using only pre-consultation information, then compared with subsequent WHO recommendations.</em>
 </p>
 
 ## What This Repository Contains
 
-| Component | Purpose | Primary entrypoints |
+| Component | Role in the current manuscript | Primary entrypoints |
 | --- | --- | --- |
-| `fluAgPredictor` | Sequence-based antigenic distance prediction and generalization benchmarking | `experiments/HA_only/train_v2_ha_only.py`, `experiments/HANA/train_v2_hana.py`, `src/fluprofiler/cli/dispatch.py` |
-| `fluVacSelector` | Prospective vaccine candidate ranking from predicted antigenic coverage | Preprint figures and downstream analysis notebooks/scripts in `paper/` and `experiments/` |
-| `fluAgEnhancer` | Diversity-driven active learning for HI prioritization and model updating | `experiments/active_learning/run_active_learning.py`, `src/fluprofiler/active_learning/` |
-| `Data preparation` | Dataset-scoped conversion from raw CSVs to processed source files and `titer` / `strain` / `serum` splits | `scripts/prepare_dataset_processed.py`, `scripts/prepare_dataset_splits.py` |
-| `Legacy / archived experiments` | Historical exploratory runs retained for reference, not the main recommended path | `src/deprecated/`, parts of `experiments/reverse_tests/` |
+| `fluProfiler` H3N2 model | Identity-free HA1 sequence-context modeling of pairwise HI-derived antigenic distance | `experiments/serum_gate/train_serum_mutation_set.py`, `src/fluprofiler/models/serum_mutation_set_model.py` |
+| Held-out-serum evaluation | Ten matched serum-level splits and identity-free baseline comparisons | `experiments/tools/export_heldout_serum_benchmark.py`, `paper/Code/plot_fig2_heldout_serum_splits.py` |
+| Prospective seasonal evaluation | Rolling evaluation on six immediately following influenza seasons | `paper/Code/plot_fig2d_seasonal_rank.py`, `paper/Code/plot_h3n2_season_prediction_scatters_without_name.py` |
+| Residue-level interpretation | Full-embedding mutation reversion and observed-substitution summaries | `experiments/serum_gate/run_full_embedding_reversion_deduplicated.py`, `experiments/serum_gate/generate_observed_reversion_table.py` |
+| Vaccine-candidate ranking | Consultation-specific prediction and candidate ranking | `paper/Code/Fig4_SCMS_FiLM_20260902/run_vaccine_selection.py` |
+| Pairwise baselines | Matched AdaBoost and Nextflu comparisons without identity terms | `experiments/benchmark_pairwise/` |
+| Data utilities | Dataset processing, split construction, HA1 extraction, and embedding registries | `scripts/`, `experiments/tools/`, `src/fluprofiler/dataset/` |
+
+The repository also retains broader and earlier research workflows for H1N1, paired HA+NA modeling, active learning, and exploratory analyses. These are useful for provenance and further development, but they are not the primary analysis described by the current H3N2 manuscript. Relevant locations include `experiments/HA_only/`, `experiments/HANA/`, `src/fluprofiler/active_learning/`, `experiments/active_learning/`, and `src/deprecated/`.
 
 ## Project Map
 
-| Path | Role in the current repository |
+| Path | Purpose |
 | --- | --- |
-| `src/fluprofiler/cli/dispatch.py` | Main CLI dispatcher for the recommended `ha_only` and `hana` training paths |
-| `experiments/HA_only/` | Primary HA-only training and inference scripts used in the current restructured workflow |
-| `experiments/HANA/` | Primary HA+NA training scripts for the current restructured workflow |
-| `src/fluprofiler/models/` | Legacy and comparative model architectures, pooling layers, and loss utilities |
-| `src/fluprofiler/models_v2/` | Newer v2 model I/O contracts and streamlined HA / HANA implementations |
-| `src/fluprofiler/active_learning/` | Modular active-learning utilities, strategies, and loop abstractions |
-| `experiments/active_learning/` | Executable active-learning experiment scripts and notebooks |
-| `scripts/prepare_dataset_processed.py` | Dataset-scoped raw CSV normalization, sequence ID assignment, embedding registry update, and processed `source.csv` generation |
-| `scripts/prepare_dataset_splits.py` | Dataset-scoped split generation from `processed/source.csv` into `splited/` |
-| `experiments/tools/build_splits.py` | Lower-level split builder reused by the script entrypoint |
-| `data/dataset/` | Dataset-scoped raw, processed, and split outputs |
-| `data/embedding/` | Global sequence registry and embedding tensor store |
-| `runs/` | Stored run artifacts, metadata, and TensorBoard logs from previous experiments |
-| `paper/` | Figure-generation notebooks, paper assets, and supplementary materials |
-| `src/deprecated/` | Archived historical experiments retained for provenance and reference |
+| `experiments/serum_gate/` | Current HA1 sequence-context training, inference, ablation, and interpretation workflows |
+| `src/fluprofiler/models/serum_mutation_set_model.py` | Main reference-background and mutation-set model implementation |
+| `experiments/benchmark_pairwise/` | AdaBoost and Nextflu matched baselines |
+| `experiments/tools/` | Benchmark export and dataset/split helpers |
+| `scripts/` | Data preparation, embedding, plotting, and experiment launch utilities |
+| `paper/Code/` | Figure generation and manuscript-facing analyses |
+| `data/dataset/H3_HA1_v1.0/` | Current local H3N2 HA1 dataset, split definitions, and interpretation inputs |
+| `data/embedding/` | Sequence registry and local foundation-model embedding store |
+| `results/` | Local predictions, checkpoints, metrics, and interpretation outputs |
+| `src/deprecated/` | Archived exploratory workflows retained for provenance |
 
 ## Quick Start Status
 
-This repository currently exposes the main research code and figure assets used in the bioRxiv preprint, but it is **not yet packaged as a fully self-contained pip-installable release**.
+This repository is a code-centered research companion and is not yet packaged as a fully self-contained, pip-installable release.
 
 Important current limitations:
 
-- No checked-in `requirements.txt`, `pyproject.toml`, or environment lockfile is present in the repository at this time.
-- The main training scripts expect external data assets, including split CSVs and embedding `.pt` files.
-- The current training entrypoints also expect `configs/args.pkl`, which is referenced by the code but not included in this repository snapshot.
+- The current manuscript analyses require local HI-derived datasets and foundation-model embeddings that are not committed to Git.
+- Trained checkpoints and most generated results are intentionally excluded from version control.
+- Some scripts preserve dataset version identifiers and paths from the research environment in which the analyses were run.
+- A single frozen environment or one-command end-to-end reproduction workflow is not yet provided.
 
-As a result, the most reliable immediate use of this repository is:
+The most reliable immediate uses of the repository are therefore to inspect the model and analysis code, reproduce individual stages in an environment containing the required data assets, and regenerate manuscript figures from saved predictions.
 
-- read the preprint and inspect the framework/results assets in this repository;
-- review the main experiment entrypoints under `experiments/HA_only/`, `experiments/HANA/`, and `experiments/tools/`;
-- reuse or adapt the code within an existing local research environment that already contains the required datasets and training assets.
+## Reproducibility and Data Notes
 
-## Reproducibility Notes
-
-- The repository includes core source code, figure assets, split manifests, and selected run metadata used to support the bioRxiv preprint.
-- The repository does **not** currently include a complete, one-command reproducibility environment specification such as `requirements.txt`, `pyproject.toml`, or a frozen conda environment file.
-- The repository also does **not** currently include all runtime training assets needed for direct execution, including embedding `.pt` files, the full split CSV payloads, or `configs/args.pkl`.
-- Some paths inside configs, manifests, and historical run metadata still reflect the original local research environment used during development and benchmarking.
-- The `data/dataset/<dataset>/splited/` trees provide protocol and manifest examples that document how dataset partitioning was performed, even when the full underlying raw data are not mirrored in the repository.
-- The preprint states that processed matched datasets, source data, and code are available through this repository and/or supplementary materials; readers should interpret the GitHub repository as the code-centered companion rather than a fully self-contained binary release.
-- Sequence data provenance is tied to GISAID-derived records and Francis Crick HI surveillance reports, so downstream redistribution and reconstruction may depend on the applicable source-data usage terms.
+- The primary manuscript dataset is the H3N2 HA1 collection represented locally by `data/dataset/H3_HA1_v1.0/`.
+- Sequence data provenance is tied to GISAID-derived records, while HI measurements are curated from Francis Crick Worldwide Influenza Centre surveillance reports. Redistribution and reconstruction remain subject to the applicable source-data terms.
+- Dataset manifests document split parameters and leakage checks even when the underlying CSV payloads are not distributed through Git.
+- Model checkpoints, embedding tensors, raw/processed CSV files, and generated result directories are excluded from Git because they are large or source-restricted.
+- Paths under `results/` and `data/` may need to be adjusted for a new local environment.
 
 ## Environment Setup
 
-Recommended:
+Recommended environment:
 
 - Python `3.10`
-- Linux + CUDA GPU (for training speed)
+- Linux
+- CUDA-capable GPU for training and embedding-heavy inference
 
-Recommended baseline:
+Create and activate the project environment:
 
 ```bash
 conda create -n fluProfiler python=3.10
 conda activate fluProfiler
 ```
 
-You will likely need a local scientific Python environment including at least:
+The main workflows use packages including:
 
 - `torch`
 - `transformers`
@@ -144,178 +141,97 @@ You will likely need a local scientific Python environment including at least:
 - `biopython`
 - `tensorboard`
 
-Verify PyTorch GPU availability (optional):
+Verify GPU availability:
 
 ```bash
-python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"
+conda run -n fluProfiler python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"
 ```
 
-## Required Data Layout
+## Current Manuscript Data Layout
 
-The current data flow uses one global embedding store and one directory per dataset:
+The current H3N2 analysis expects a local layout similar to:
 
 ```text
 data/
 ├── embedding/
 │   ├── registry/
-│   │   ├── sequences.csv
-│   │   └── pending/
 │   └── files/
 │       └── matrix_<seq_id>.pt
 └── dataset/
-    └── H1H3_new/
+    └── H3_HA1_v1.0/
         ├── raw/
+        │   └── data4model(Crick-H3N2).csv
         ├── processed/
-        └── splited/
+        │   └── source.csv
+        ├── splited/
+        │   └── <split_version>/
+        │       ├── serum/seed_<n>/{train,valid,test}.csv
+        │       └── season/<season_id>/{train,valid,test}.csv
+        └── interpretation/
+            └── full_data/{train,valid,test}.csv
 ```
 
-Training uses split CSV files from `data/dataset/<dataset>/splited/...` and embedding tensors from `data/embedding/files/matrix_<seq_id>.pt`.
+The primary model uses aligned HA1 embeddings for the serum/reference and query viruses, their observed amino-acid differences, passage metadata, and the HI-derived antigenic-distance label. Virus and antiserum names may be retained for matching and split construction, but are not used as predictive inputs in the primary model.
 
-Check and edit config paths before running:
+## Minimal Model Invocation
 
-- `experiments/HA_only/config_v2_ha_only.json`
-- `experiments/HANA/config_v2_hana.json`
-
-## Recommended Run Method (Single Entry)
-
-Use the top-level script:
+The current trainer is `experiments/serum_gate/train_serum_mutation_set.py`. A small interface smoke run can be launched with local assets as follows:
 
 ```bash
-bash run_fluprofiler.sh
+conda run -n fluProfiler python \
+  experiments/serum_gate/train_serum_mutation_set.py \
+  --data-dir data/dataset/H3_HA1_v1.0/splited/<split_version>/serum/seed_0 \
+  --embedding-dir data/embedding/files \
+  --ha-distance-matrix ha1_distance_no_bias_329.npy \
+  --output-dir results/smoke/fluProfiler-H3N2 \
+  --type H3N2 \
+  --sample-limit 128 \
+  --epochs 1 \
+  --device cuda:0
 ```
 
-Edit parameters at the top of `run_fluprofiler.sh`:
+This command checks the local data/model interface; it is not the full manuscript training protocol. For manuscript-facing analyses, use the matched split versions, saved run metadata, and fixed hyperparameters associated with the relevant result directory.
 
-- `task`: `ha_only` or `hana`
-- `impl`: `v2` or `legacy`
-- `config`: config file path
-- `batch_size`
-- `learning_rate`
-- `epochs`
-- `device` (example: `cuda:0`)
-- `gpu_cache_gb`
-- `sample_limit` (`-1` = full data, small value = quick test)
+## Figure Regeneration
 
-Note:
-
-- the shell wrapper currently exposes fixed variables at the top of `run_fluprofiler.sh`;
-- the README example below reflects the intended usage pattern, but the wrapper is not yet a polished CLI.
-
-Example intended quick smoke test pattern:
+Once the corresponding predictions are available, the main benchmark panels can be regenerated with:
 
 ```bash
-bash run_fluprofiler.sh --sample-limit 128 --epochs 1 --batch-size 8
+conda run -n fluProfiler python paper/Code/plot_fig2_heldout_serum_splits.py
+conda run -n fluProfiler python paper/Code/plot_fig2d_seasonal_rank.py
 ```
 
-## Direct Commands (Optional)
+The prospective vaccine-ranking workflow is implemented in:
 
-If you want to bypass the shell entry:
-
-```bash
-# HA-only v2
-python experiments/HA_only/train_v2_ha_only.py experiments/HA_only/config_v2_ha_only.json
-
-# HANA v2
-python experiments/HANA/train_v2_hana.py experiments/HANA/config_v2_hana.json
+```text
+paper/Code/Fig4_SCMS_FiLM_20260902/run_vaccine_selection.py
 ```
 
-Dispatcher usage from repo root:
+Most plotting scripts accept explicit result and output directories; run them with `--help` before adapting them to a different dataset version.
 
-```bash
-PYTHONPATH=src python src/fluprofiler/cli/dispatch.py --task ha_only --impl v2
-PYTHONPATH=src python src/fluprofiler/cli/dispatch.py --task hana --impl v2
-```
+## Additional and Historical Workflows
+
+The following components remain available but are outside the primary scope of the current H3N2 manuscript:
+
+- `experiments/HA_only/`: earlier HA-only training and inference workflows
+- `experiments/HANA/`: paired HA+NA modeling
+- `src/fluprofiler/active_learning/` and `experiments/active_learning/`: diversity-driven sampling research
+- `experiments/reverse_tests/`: earlier seasonal extrapolation experiments
+- `src/deprecated/`: archived notebooks and scripts retained for provenance
+- `run_fluprofiler.sh`: legacy top-level dispatcher for the earlier HA-only/HANA workflow
 
 ## Outputs
 
-Run artifacts are saved under `runs/`, including:
+Generated assets are normally written under `results/` or `runs/` and may include:
 
-- TensorBoard logs
-- Checkpoints
-- Run logs / metadata
+- model checkpoints;
+- test-set predictions;
+- regression metrics and split audits;
+- TensorBoard logs and run metadata;
+- mutation-reversion and attribution outputs;
+- vaccine-candidate rankings and manuscript figures.
 
-## Raw To Splited Data Flow
-
-Put each dataset under `data/dataset/<dataset_name>/`. Raw CSV files go in `raw/`; generated files go to `processed/` and `splited/`.
-
-```text
-data/dataset/H1H3_new/
-├── raw/
-│   ├── data4model(Crick-H1N1).csv
-│   └── data4model(Crick-H3N2).csv
-├── processed/
-│   ├── source.csv
-│   └── qc_summary.json
-└── splited/
-    └── v1/<split_id>/{titer,strain,serum}/
-        ├── train.csv
-        ├── valid.csv
-        ├── test.csv
-        └── manifest.json
-```
-
-### Step 1: Raw To Processed
-
-Run:
-
-```bash
-python scripts/prepare_dataset_processed.py --dataset-dir data/dataset/H1H3_new
-```
-
-This reads all raw CSV files under `raw/`, validates required columns, converts `label` to numeric, removes rows missing `label` or any of `seq_a`, `seq_b`, `seq_c`, `seq_d`, normalizes passage categories, assigns `seq_id_a` / `seq_id_b` / `seq_id_c` / `seq_id_d`, updates `data/embedding/registry/sequences.csv`, and writes:
-
-```text
-data/dataset/H1H3_new/processed/source.csv
-data/dataset/H1H3_new/processed/qc_summary.json
-```
-
-`qc_summary.json` records each processing step, including rows before/after, deleted rows, passage normalization counts, new sequence counts, and missing embedding counts. If any used sequence has no embedding file, one timestamped FASTA is written to:
-
-```text
-data/embedding/registry/pending/<timestamp>.fasta
-```
-
-The pending FASTA is intended to be sent to the embedding pipeline. After the corresponding `matrix_<seq_id>.pt` files are generated under `data/embedding/files/`, rerun the processing step if needed.
-
-### Step 2: Processed To Splited
-
-Run:
-
-```bash
-python scripts/prepare_dataset_splits.py --dataset-dir data/dataset/H1H3_new
-```
-
-This reads `processed/source.csv` and generates three split modes:
-
-- `titer`  (row-level random split)
-- `strain` (group split by strain key, default `seq_id_c`)
-- `serum`  (group split by serum key, default `seq_id_a`)
-
-Default split settings are `seed=42`, `test_ratio=0.1`, `valid_ratio=0.1`, `group_valid=false`, and `split_modes=titer,strain,serum`. To make the split reproducible by name, pass `--split-id`:
-
-```bash
-python scripts/prepare_dataset_splits.py \
-  --dataset-dir data/dataset/H1H3_new \
-  --split-id H1H3_new__seed42__tr0.80_va0.10_te0.10
-```
-
-Generated files:
-
-```text
-data/dataset/H1H3_new/splited/v1/<split_id>/
-├── titer/{train.csv,valid.csv,test.csv,manifest.json}
-├── strain/{train.csv,valid.csv,test.csv,manifest.json}
-└── serum/{train.csv,valid.csv,test.csv,manifest.json}
-```
-
-Each `manifest.json` records split parameters, source checksum, dataset metadata, row counts, duplicate aggregation reports, overlap checks, and group leakage checks.
-
-Notes:
-
-- `scripts/prepare_dataset_splits.py` is the recommended entrypoint for the new data layout.
-- `experiments/tools/build_splits.py` remains available as the lower-level standalone split builder.
-- Use `--id-col` if `processed/source.csv` has a stable unique row identifier.
-- `--split-modes` controls which splits are generated (for example: `titer,serum`).
+These directories are treated as local research artifacts and are not intended to be committed wholesale.
 
 ## Troubleshooting
 
@@ -323,10 +239,11 @@ Notes:
 
 Reduce memory pressure by:
 
-- Lowering `batch_size` (e.g. `64 -> 16 -> 8`)
-- Lowering `gpu_cache_gb`
-- Switching to a less busy GPU (`device`)
-- Using a small `sample_limit` for validation first
+- lowering `batch_size`;
+- lowering `max_queries_per_task`;
+- lowering `gpu_cache_gb`;
+- selecting a less busy GPU;
+- using `--sample-limit` for an interface check before a full run.
 
 Optional allocator setting:
 
@@ -336,5 +253,4 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 ### `CalledProcessError`
 
-This is usually a wrapper error from the dispatcher.  
-Check the first traceback above it to find the real cause.
+This is usually a wrapper error from a dispatcher or launch script. Check the first traceback above it to identify the underlying failure.
