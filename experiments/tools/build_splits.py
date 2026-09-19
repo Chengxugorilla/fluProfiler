@@ -4,6 +4,7 @@ Build dataset splits with three modes used in the paper:
 - titer  : row-level random split
 - strain : group-level split by strain key
 - serum  : group-level split by serum key
+- season: rolling season holdout split by sheet prefix
 
 Protocol-oriented output layout:
   <splits_root>/<protocol_version>/<dataset_version_id>/<mode>/<split_id>/
@@ -28,7 +29,7 @@ import pandas as pd
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build titer/strain/serum dataset splits (standalone protocol tool)."
+        description="Build titer/strain/serum/season dataset splits (standalone protocol tool)."
     )
     parser.add_argument(
         "--input-csv",
@@ -82,9 +83,24 @@ def parse_args() -> argparse.Namespace:
         default="v1",
         help="Split protocol version name.",
     )
+    parser.add_argument(
+        "--dataset-scoped-output",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Write to <splits-root>/<protocol-version>/<split-id>/<mode>/ instead of "
+            "<splits-root>/<protocol-version>/<dataset-version-id>/<split-id>/<mode>/."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     parser.add_argument("--test-ratio", type=float, default=0.2, help="Test split ratio.")
     parser.add_argument("--valid-ratio", type=float, default=0.1, help="Validation split ratio.")
+    parser.add_argument(
+        "--group-valid",
+        choices=("true", "false"),
+        default="false",
+        help="Whether validation should be split by group for strain/serum modes.",
+    )
     parser.add_argument(
         "--strain-col",
         type=str,
@@ -98,10 +114,40 @@ def parse_args() -> argparse.Namespace:
         help="Column name used for serum-group split.",
     )
     parser.add_argument(
+        "--pre-split-agg-cols",
+        type=str,
+        default="",
+        help=(
+            "Comma-separated columns used with serumPassCat/virusPassCat to aggregate labels "
+            "before splitting test. Defaults to --serum-col,--strain-col."
+        ),
+    )
+    parser.add_argument(
+        "--train-agg-cols",
+        type=str,
+        default="",
+        help=(
+            "Comma-separated columns used with serumPassCat/virusPassCat to aggregate labels "
+            "after test holdout and before validation split. Defaults to --serum-col,--strain-col."
+        ),
+    )
+    parser.add_argument(
         "--split-modes",
         type=str,
         default="titer,strain,serum",
-        help="Comma-separated split modes from {titer,strain,serum}.",
+        help="Comma-separated split modes from {titer,strain,serum,season}.",
+    )
+    parser.add_argument(
+        "--season-col",
+        type=str,
+        default="sheet",
+        help="Column whose prefix before '-' defines the season key for season mode.",
+    )
+    parser.add_argument(
+        "--test-seasons",
+        type=str,
+        default="",
+        help="Comma-separated season keys to hold out one at a time in season mode.",
     )
     parser.add_argument(
         "--id-col",
@@ -128,7 +174,7 @@ def _validate_ratios(test_ratio: float, valid_ratio: float) -> None:
 
 
 def _parse_modes(modes_arg: str) -> List[str]:
-    valid = {"titer", "strain", "serum"}
+    valid = {"titer", "strain", "serum", "season"}
     modes = [m.strip().lower() for m in modes_arg.split(",") if m.strip()]
     if not modes:
         raise ValueError("--split-modes is empty.")
@@ -139,6 +185,39 @@ def _parse_modes(modes_arg: str) -> List[str]:
     return dedup
 
 
+def _parse_column_list(cols_arg: str) -> List[str]:
+    return [col.strip() for col in cols_arg.split(",") if col.strip()]
+
+
+def _parse_test_seasons(seasons_arg: str) -> List[str]:
+    seasons = [season.strip() for season in seasons_arg.split(",") if season.strip()]
+    return list(dict.fromkeys(seasons))
+
+
+def _aggregation_subset_columns(cols_arg: str, fallback_cols_arg: str) -> List[str]:
+    required = ["serumPassCat", "virusPassCat"]
+    configured = _parse_column_list(cols_arg) or _parse_column_list(fallback_cols_arg)
+    return list(dict.fromkeys([*required, *configured]))
+
+
+def _aggregate_duplicates(df: pd.DataFrame, subset: List[str]) -> Tuple[pd.DataFrame, Dict]:
+    before_count = len(df)
+    agg_map = {col: "first" for col in df.columns if col not in subset}
+    agg_map["label"] = "mean"
+    grouped = df.groupby(subset, as_index=False, dropna=False, sort=False).agg(agg_map)
+    grouped = grouped[[col for col in df.columns if col in grouped.columns]]
+    duplicate_count = before_count - len(grouped)
+    report = {
+        "subset": subset,
+        "before": int(before_count),
+        "after": int(len(grouped)),
+        "duplicates_aggregated": int(duplicate_count),
+        "label_aggregation": "mean",
+        "other_columns": "first",
+    }
+    return grouped, report
+
+
 def _split_counts(n: int, test_ratio: float, valid_ratio: float) -> Tuple[int, int, int]:
     n_test = int(round(n * test_ratio))
     n_valid = int(round(n * valid_ratio))
@@ -147,6 +226,24 @@ def _split_counts(n: int, test_ratio: float, valid_ratio: float) -> Tuple[int, i
         n_valid = max(0, n_valid - 1)
     n_train = n - n_test - n_valid
     return n_train, n_valid, n_test
+
+
+def _season_sort_key(value: str) -> tuple[int, int | str]:
+    text = str(value)
+    try:
+        return (0, int(text))
+    except ValueError:
+        return (1, text)
+
+
+def _add_season_key(df: pd.DataFrame, season_col: str, key_col: str = "_season_key") -> pd.DataFrame:
+    if season_col not in df.columns:
+        raise KeyError(f"Required season column not found in CSV: {season_col!r}")
+    keyed = df.copy()
+    keyed[key_col] = keyed[season_col].fillna("").astype(str).str.split("-", n=1).str[0]
+    if (keyed[key_col] == "").any():
+        raise ValueError(f"Season column {season_col!r} contains empty values after prefix parsing.")
+    return keyed
 
 
 def _sha256(path: Path) -> str:
@@ -253,30 +350,183 @@ def _split_rows(
 
 def _split_by_group(
     df: pd.DataFrame,
-    group_col: str,
+    group_cols: List[str],
     rng: np.random.Generator,
     test_ratio: float,
     valid_ratio: float,
+    group_valid: bool,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    if group_col not in df.columns:
-        raise KeyError(f"Missing group column: {group_col!r}")
-    groups = df[group_col].fillna("<NA>").astype(str).unique().tolist()
+    group_values = df[group_cols].fillna("<NA>").astype(str).agg("|".join, axis=1)
+    groups = group_values.unique().tolist()
     groups = np.array(groups, dtype=object)
     rng.shuffle(groups)
 
-    n_groups = len(groups)
-    n_train_g, n_valid_g, n_test_g = _split_counts(n_groups, test_ratio, valid_ratio)
-    g1 = n_train_g
-    g2 = n_train_g + n_valid_g
-    train_groups = set(groups[:g1].tolist())
-    valid_groups = set(groups[g1:g2].tolist())
-    test_groups = set(groups[g2 : g2 + n_test_g].tolist())
-
-    group_values = df[group_col].fillna("<NA>").astype(str)
-    train_df = df[group_values.isin(train_groups)].copy().reset_index(drop=True)
-    valid_df = df[group_values.isin(valid_groups)].copy().reset_index(drop=True)
-    test_df = df[group_values.isin(test_groups)].copy().reset_index(drop=True)
+    if group_valid:
+        n_train_g, n_valid_g, n_test_g = _split_counts(len(groups), test_ratio, valid_ratio)
+        g1 = n_train_g
+        g2 = n_train_g + n_valid_g
+        train_groups = set(groups[:g1].tolist())
+        valid_groups = set(groups[g1:g2].tolist())
+        test_groups = set(groups[g2 : g2 + n_test_g].tolist())
+        train_df = df[group_values.isin(train_groups)].copy().reset_index(drop=True)
+        valid_df = df[group_values.isin(valid_groups)].copy().reset_index(drop=True)
+        test_df = df[group_values.isin(test_groups)].copy().reset_index(drop=True)
+    else:
+        _, _, n_test_g = _split_counts(len(groups), test_ratio, 0.0)
+        test_groups = set(groups[-n_test_g:].tolist()) if n_test_g else set()
+        remaining_df = df[~group_values.isin(test_groups)].copy().reset_index(drop=True)
+        train_df, valid_df, _ = _split_rows(
+            remaining_df, rng, test_ratio=0.0, valid_ratio=valid_ratio / (1.0 - test_ratio)
+        )
+        test_df = df[group_values.isin(test_groups)].copy().reset_index(drop=True)
     return train_df, valid_df, test_df
+
+
+def _split_train_pool_and_test(
+    df: pd.DataFrame,
+    mode: str,
+    rng: np.random.Generator,
+    test_ratio: float,
+    strain_cols: List[str],
+    serum_cols: List[str],
+) -> Tuple[pd.DataFrame, pd.DataFrame, List[str] | None]:
+    if mode == "titer":
+        train_pool_df, _, test_df = _split_rows(df, rng, test_ratio, valid_ratio=0.0)
+        return train_pool_df, test_df, None
+    if mode == "strain":
+        train_pool_df, _, test_df = _split_by_group(
+            df, strain_cols, rng, test_ratio, valid_ratio=0.0, group_valid=True
+        )
+        return train_pool_df, test_df, strain_cols
+    if mode == "serum":
+        train_pool_df, _, test_df = _split_by_group(
+            df, serum_cols, rng, test_ratio, valid_ratio=0.0, group_valid=True
+        )
+        return train_pool_df, test_df, serum_cols
+    raise ValueError(f"Unknown mode: {mode}")
+
+
+def _split_train_and_valid(
+    df: pd.DataFrame,
+    rng: np.random.Generator,
+    test_ratio: float,
+    valid_ratio: float,
+    group_cols: List[str] | None,
+    group_valid: bool,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    adjusted_valid_ratio = valid_ratio / (1.0 - test_ratio)
+    if group_cols is not None and group_valid:
+        train_df, valid_df, _ = _split_by_group(
+            df,
+            group_cols,
+            rng,
+            test_ratio=0.0,
+            valid_ratio=adjusted_valid_ratio,
+            group_valid=True,
+        )
+        return train_df, valid_df
+    train_df, valid_df, _ = _split_rows(
+        df,
+        rng,
+        test_ratio=0.0,
+        valid_ratio=adjusted_valid_ratio,
+    )
+    return train_df, valid_df
+
+
+def _choose_previous_valid_season(
+    prior_seasons: List[str],
+    valid_ratio: float,
+) -> List[str]:
+    if valid_ratio <= 0.0 or len(prior_seasons) < 2:
+        return []
+    return [prior_seasons[-1]]
+
+
+def _run_one_season_split(
+    df: pd.DataFrame,
+    test_season: str,
+    seed: int,
+    test_ratio: float,
+    valid_ratio: float,
+    season_col: str,
+    season_key_col: str,
+    id_col: str,
+    train_agg_subset: List[str],
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
+    all_seasons = sorted(df[season_key_col].dropna().astype(str).unique().tolist(), key=_season_sort_key)
+    if test_season not in all_seasons:
+        raise ValueError(f"Requested test season {test_season!r} not found in {season_col!r}.")
+    prior_seasons = [season for season in all_seasons if _season_sort_key(season) < _season_sort_key(test_season)]
+    future_seasons = [season for season in all_seasons if _season_sort_key(season) > _season_sort_key(test_season)]
+    if not prior_seasons:
+        raise ValueError(f"Requested test season {test_season!r} has no earlier seasons for training.")
+
+    train_pool = df[df[season_key_col].isin(prior_seasons)].copy().reset_index(drop=True)
+    train_pool_before_agg = len(train_pool)
+    train_pool, train_agg_report = _aggregate_duplicates(
+        train_pool,
+        list(dict.fromkeys([season_key_col, *train_agg_subset])),
+    )
+    valid_seasons = _choose_previous_valid_season(prior_seasons, valid_ratio)
+    train_seasons = [season for season in prior_seasons if season not in set(valid_seasons)]
+    train_df = train_pool[train_pool[season_key_col].isin(train_seasons)].copy().reset_index(drop=True)
+    valid_df = train_pool[train_pool[season_key_col].isin(valid_seasons)].copy().reset_index(drop=True)
+    test_df = df[df[season_key_col] == test_season].copy().reset_index(drop=True)
+
+    overlap_stats = _check_no_overlap(train_df, valid_df, test_df, id_col)
+    report = {
+        "mode": "season",
+        "seed": seed,
+        "ratios": {
+            "train_ratio": 1.0 - test_ratio - valid_ratio,
+            "valid_ratio": valid_ratio,
+            "test_ratio": test_ratio,
+        },
+        "counts": {
+            "all": int(len(train_df) + len(valid_df) + len(test_df)),
+            "pre_train_pool_aggregation": int(train_pool_before_agg),
+            "post_train_pool_aggregation": int(len(train_pool)),
+            "train": int(len(train_df)),
+            "valid": int(len(valid_df)),
+            "test": int(len(test_df)),
+            "unused": int(df[df[season_key_col].isin(future_seasons)].shape[0]),
+        },
+        "overlap": overlap_stats,
+        "valid_split_strategy": "previous_season",
+        "season_split_policy": {
+            "train": "seasons earlier than the validation season",
+            "valid": "immediate previous season before the test season",
+            "test": "requested held-out season",
+        },
+        "train_pool_aggregation": train_agg_report,
+        "season_col": season_col,
+        "season_key_rule": "prefix_before_dash",
+        "test_season": test_season,
+        "train_seasons": train_seasons,
+        "valid_seasons": valid_seasons,
+        "unused_seasons": future_seasons,
+        "season_counts": {
+            season: int(count)
+            for season, count in df.groupby(season_key_col).size().sort_index(key=lambda s: s.map(_season_sort_key)).items()
+        },
+        "group_columns": [season_key_col],
+        "group_counts": {
+            "all": int(len(all_seasons)),
+            "train": int(len(train_seasons)),
+            "valid": int(len(valid_seasons)),
+            "test": 1,
+            "unused": int(len(future_seasons)),
+        },
+        "group_leakage": _check_group_leakage(train_df, valid_df, test_df, [season_key_col]),
+    }
+
+    return (
+        train_df.drop(columns=[season_key_col]).reset_index(drop=True),
+        valid_df.drop(columns=[season_key_col]).reset_index(drop=True),
+        test_df.drop(columns=[season_key_col]).reset_index(drop=True),
+        report,
+    )
 
 
 def _check_no_overlap(
@@ -305,11 +555,11 @@ def _check_group_leakage(
     train_df: pd.DataFrame,
     valid_df: pd.DataFrame,
     test_df: pd.DataFrame,
-    group_col: str,
+    group_cols: List[str],
 ) -> Dict[str, int]:
-    ta = set(train_df[group_col].fillna("<NA>").astype(str).tolist())
-    va = set(valid_df[group_col].fillna("<NA>").astype(str).tolist())
-    sa = set(test_df[group_col].fillna("<NA>").astype(str).tolist())
+    ta = set(train_df[group_cols].fillna("<NA>").astype(str).agg("|".join, axis=1).tolist())
+    va = set(valid_df[group_cols].fillna("<NA>").astype(str).agg("|".join, axis=1).tolist())
+    sa = set(test_df[group_cols].fillna("<NA>").astype(str).agg("|".join, axis=1).tolist())
     return {
         "train_valid_group_overlap": len(ta & va),
         "train_test_group_overlap": len(ta & sa),
@@ -344,20 +594,30 @@ def _run_one_mode(
     strain_col: str,
     serum_col: str,
     id_col: str,
+    group_valid: bool,
+    train_agg_subset: List[str],
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
     rng = np.random.default_rng(seed)
-
-    if mode == "titer":
-        train_df, valid_df, test_df = _split_rows(df, rng, test_ratio, valid_ratio)
-        group_col = None
-    elif mode == "strain":
-        train_df, valid_df, test_df = _split_by_group(df, strain_col, rng, test_ratio, valid_ratio)
-        group_col = strain_col
-    elif mode == "serum":
-        train_df, valid_df, test_df = _split_by_group(df, serum_col, rng, test_ratio, valid_ratio)
-        group_col = serum_col
-    else:
-        raise ValueError(f"Unknown mode: {mode}")
+    strain_cols = _parse_column_list(strain_col)
+    serum_cols = _parse_column_list(serum_col)
+    train_pool_df, test_df, group_cols = _split_train_pool_and_test(
+        df=df,
+        mode=mode,
+        rng=rng,
+        test_ratio=test_ratio,
+        strain_cols=strain_cols,
+        serum_cols=serum_cols,
+    )
+    train_pool_before_agg = len(train_pool_df)
+    train_pool_df, train_agg_report = _aggregate_duplicates(train_pool_df, train_agg_subset)
+    train_df, valid_df = _split_train_and_valid(
+        train_pool_df,
+        rng,
+        test_ratio=test_ratio,
+        valid_ratio=valid_ratio,
+        group_cols=group_cols,
+        group_valid=group_valid,
+    )
 
     overlap_stats = _check_no_overlap(train_df, valid_df, test_df, id_col)
     report = {
@@ -369,23 +629,27 @@ def _run_one_mode(
             "test_ratio": test_ratio,
         },
         "counts": {
-            "all": int(len(df)),
+            "all": int(len(train_df) + len(valid_df) + len(test_df)),
+            "pre_train_pool_aggregation": int(train_pool_before_agg),
+            "post_train_pool_aggregation": int(len(train_pool_df)),
             "train": int(len(train_df)),
             "valid": int(len(valid_df)),
             "test": int(len(test_df)),
         },
         "overlap": overlap_stats,
+        "valid_split_strategy": "group" if group_cols is not None and group_valid else "random",
+        "train_pool_aggregation": train_agg_report,
     }
 
-    if group_col is not None:
-        report["group_column"] = group_col
+    if group_cols is not None:
+        report["group_columns"] = group_cols
         report["group_counts"] = {
-            "all": int(df[group_col].fillna("<NA>").astype(str).nunique()),
-            "train": int(train_df[group_col].fillna("<NA>").astype(str).nunique()),
-            "valid": int(valid_df[group_col].fillna("<NA>").astype(str).nunique()),
-            "test": int(test_df[group_col].fillna("<NA>").astype(str).nunique()),
+            "all": int(df[group_cols].drop_duplicates().shape[0]),
+            "train": int(train_df[group_cols].drop_duplicates().shape[0]),
+            "valid": int(valid_df[group_cols].drop_duplicates().shape[0]),
+            "test": int(test_df[group_cols].drop_duplicates().shape[0]),
         }
-        report["group_leakage"] = _check_group_leakage(train_df, valid_df, test_df, group_col)
+        report["group_leakage"] = _check_group_leakage(train_df, valid_df, test_df, group_cols)
 
     return train_df, valid_df, test_df, report
 
@@ -394,15 +658,63 @@ def main() -> None:
     args = parse_args()
     _validate_ratios(args.test_ratio, args.valid_ratio)
     split_modes = _parse_modes(args.split_modes)
+    test_seasons = _parse_test_seasons(args.test_seasons)
+    if "season" in split_modes and not test_seasons:
+        raise ValueError("--test-seasons is required when --split-modes includes season.")
     input_csv, dataset_version_id, raw_version_dir = _resolve_input_and_dataset_id(args)
     splits_root = Path(args.splits_root).expanduser().resolve()
     dataset_name = args.dataset_name.strip()
     if not dataset_name:
         raise ValueError("--dataset-name cannot be empty.")
 
-    df = pd.read_csv(input_csv)
-    if len(df) == 0:
+    raw_df = pd.read_csv(input_csv)
+    if len(raw_df) == 0:
         raise ValueError("Input CSV is empty.")
+    nan_label_count = int(raw_df["label"].isna().sum())
+    labeled_df = raw_df.dropna(subset=["label"]).reset_index(drop=True)
+    print(f"Dropped {nan_label_count} rows with NaN label.")
+    if len(labeled_df) == 0:
+        raise ValueError("No labeled rows remain after dropping NaN labels.")
+
+    fallback_agg_cols = ",".join(_parse_column_list(args.serum_col) + _parse_column_list(args.strain_col))
+    pre_split_agg_subset = _aggregation_subset_columns(args.pre_split_agg_cols, fallback_agg_cols)
+    train_agg_subset = _aggregation_subset_columns(args.train_agg_cols, fallback_agg_cols)
+    required_cols = list(
+        dict.fromkeys(
+            [
+                *pre_split_agg_subset,
+                *train_agg_subset,
+                *_parse_column_list(args.strain_col),
+                *_parse_column_list(args.serum_col),
+                *([args.season_col] if "season" in split_modes else []),
+            ]
+        )
+    )
+    for col in required_cols:
+        if col not in labeled_df.columns:
+            raise KeyError(f"Required column not found in CSV: {col!r}")
+    df, pre_split_agg_report = _aggregate_duplicates(labeled_df, pre_split_agg_subset)
+    print(
+        "Dropped "
+        f"{pre_split_agg_report['duplicates_aggregated']} duplicate rows before splitting test "
+        f"using subset: {', '.join(pre_split_agg_subset)}; aggregated duplicate labels by mean."
+    )
+    season_df = None
+    season_pre_split_agg_report = None
+    season_key_col = "_season_key"
+    if "season" in split_modes:
+        season_keyed_df = _add_season_key(labeled_df, args.season_col, season_key_col)
+        season_df, season_pre_split_agg_report = _aggregate_duplicates(
+            season_keyed_df,
+            list(dict.fromkeys([season_key_col, *pre_split_agg_subset])),
+        )
+        print(
+            "Dropped "
+            f"{season_pre_split_agg_report['duplicates_aggregated']} duplicate rows before season splitting "
+            f"using subset: {', '.join(season_pre_split_agg_report['subset'])}; "
+            "aggregated duplicate labels by mean."
+        )
+
     dataset_meta = _maybe_write_dataset_meta(
         raw_version_dir=raw_version_dir,
         dataset_name=dataset_name,
@@ -412,11 +724,6 @@ def main() -> None:
         row_count=len(df),
     )
 
-    required_cols: List[str] = [args.strain_col, args.serum_col]
-    for col in required_cols:
-        if col not in df.columns:
-            raise KeyError(f"Required column not found in CSV: {col!r}")
-
     split_id = args.split_id.strip() or _auto_split_id(
         dataset_version_id=dataset_version_id,
         seed=args.seed,
@@ -424,10 +731,59 @@ def main() -> None:
         valid_ratio=args.valid_ratio,
     )
 
-    base_out = (splits_root / args.protocol_version / dataset_name / dataset_version_id).resolve()
+    if args.dataset_scoped_output:
+        base_out = (splits_root / args.protocol_version).resolve()
+    else:
+        base_out = (splits_root / args.protocol_version / dataset_version_id).resolve()
     base_out.mkdir(parents=True, exist_ok=True)
 
     for mode in split_modes:
+        if mode == "season":
+            assert season_df is not None
+            assert season_pre_split_agg_report is not None
+            for test_season in test_seasons:
+                train_df, valid_df, test_df, report = _run_one_season_split(
+                    df=season_df,
+                    test_season=test_season,
+                    seed=args.seed,
+                    test_ratio=args.test_ratio,
+                    valid_ratio=args.valid_ratio,
+                    season_col=args.season_col,
+                    season_key_col=season_key_col,
+                    id_col=args.id_col,
+                    train_agg_subset=train_agg_subset,
+                )
+                mode_dir = base_out / split_id / "season" / test_season
+                report.update(
+                    {
+                        "protocol_version": args.protocol_version,
+                        "dataset_name": dataset_name,
+                        "dataset_version_id": dataset_version_id,
+                        "split_id": split_id,
+                        "source": {
+                            "input_csv": str(input_csv),
+                            "input_csv_sha256": _sha256(input_csv),
+                            "raw_version_dir": str(raw_version_dir) if raw_version_dir else "",
+                        },
+                        "dataset_meta": dataset_meta,
+                        "pre_split_aggregation": season_pre_split_agg_report,
+                        "paths": {
+                            "train_csv": str((mode_dir / "train.csv").resolve()),
+                            "valid_csv": str((mode_dir / "valid.csv").resolve()),
+                            "test_csv": str((mode_dir / "test.csv").resolve()),
+                        },
+                        "created_at": _now_iso(),
+                    }
+                )
+                _write_mode_outputs(mode, mode_dir, train_df, valid_df, test_df, report)
+                print(
+                    f"[season/{test_season}] all={report['counts']['all']} "
+                    f"train={report['counts']['train']} "
+                    f"valid={report['counts']['valid']} "
+                    f"test={report['counts']['test']} -> {mode_dir}"
+                )
+            continue
+
         train_df, valid_df, test_df, report = _run_one_mode(
             df=df,
             mode=mode,
@@ -437,8 +793,10 @@ def main() -> None:
             strain_col=args.strain_col,
             serum_col=args.serum_col,
             id_col=args.id_col,
+            group_valid=args.group_valid == "true",
+            train_agg_subset=train_agg_subset,
         )
-        mode_dir = base_out / mode / split_id
+        mode_dir = base_out / split_id / mode
         report.update(
             {
                 "protocol_version": args.protocol_version,
@@ -451,6 +809,7 @@ def main() -> None:
                     "raw_version_dir": str(raw_version_dir) if raw_version_dir else "",
                 },
                 "dataset_meta": dataset_meta,
+                "pre_split_aggregation": pre_split_agg_report,
                 "paths": {
                     "train_csv": str((mode_dir / "train.csv").resolve()),
                     "valid_csv": str((mode_dir / "valid.csv").resolve()),

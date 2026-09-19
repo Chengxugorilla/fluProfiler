@@ -1,0 +1,10 @@
+{
+  "season": "39",
+  "figure_panel": "2023Feb",
+  "checkpoint": "/mnt/zzbnew/peixunban/chenyihao/fluProfiler/results/H3_HA1_v1.0/20260902_161615/SCMS-FiLM-H3/season/39/subtype/H3N2_seed42/checkpoints/best_model.pth",
+  "candidate_serum_count": 143,
+  "target_virus_count": 125,
+  "pair_count": 17875,
+  "max_queries_per_task": 32,
+  "score_definition": "coverage_score = - mean predicted antigenic distance"
+}

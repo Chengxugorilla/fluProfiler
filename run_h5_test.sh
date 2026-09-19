@@ -1,0 +1,57 @@
+CUDA_VISIBLE_DEVICES=6 conda run --no-capture-output -n fluProfiler python \
+  experiments/serum_gate/train_serum_mutation_set.py \
+  --data-dir "/home/chenyh/workspace/fluProfiler_H5/data/dataset/H5/splited/20260727_142640_HA1_Global_Aligned/serum/seed_0" \
+  --embedding-dir "/home/chenyh/workspace/fluProfiler_H5/data/embedding/files_HA1_global_aligned" \
+  --ha-distance-matrix "/home/chenyh/workspace/fluProfiler/ha1_distance_no_bias_567.npy" \
+  --output-dir "/home/chenyh/workspace/fluProfiler_H5/results/H5_test/SCMS-FiLM-H5/serum/seed_0" \
+  --type H5 \
+  --serum-task-cols seq_id_a,serumPassCat,serumName \
+  --refit-train-valid \
+  --batch-size 1 \
+  --max-queries-per-task 32 \
+  --no-shuffle-queries-within-task-each-epoch \
+  --epochs 50 \
+  --save-epoch 50 \
+  --learning-rate 1e-4 \
+  --weight-decay 0.01 \
+  --lr-scheduler cosine \
+  --lr-min 1e-6 \
+  --early-stopping-patience -1 \
+  --site-dim 64 \
+  --site-bottleneck-dim 0 \
+  --background-dim 64 \
+  --direct-background \
+  --mutation-dim 128 \
+  --position-dim 32 \
+  --amino-acid-dim 16 \
+  --presence-dim 4 \
+  --theta-dim 128 \
+  --passage-dim 8 \
+  --subtype-dim 0 \
+  --no-use-subtype-feature \
+  --use-passage-pair-feature \
+  --mutation-attention-heads 4 \
+  --mutation-attention-layers 1 \
+  --no-bypass-mutation-transformer \
+  --no-use-background-to-mutation \
+  --mutation-ffn-dim 256 \
+  --attention-dropout 0.1 \
+  --attention-alpha-init 0.05 \
+  --attention-tau-init 8.0 \
+  --predictor-hidden-dim 256 \
+  --predictor-dropout 0.1 \
+  --zero-init-film \
+  --use-film-beta \
+  --use-pool-mutation-count \
+  --use-attention-pool \
+  --use-predictor-mutation-count \
+  --label-weight-thresholds 2,4,6 \
+  --label-weight-values 1,1.3,1.8,2.5 \
+  --within-serum-rank-loss-weight 0.0 \
+  --task-bias-loss-weight 0.1 \
+  --no-full-task-bias-loss \
+  --no-use-output-identity-bias \
+  --device cuda:0 \
+  --gpu-cache-gb 24 \
+  --seed 42 \
+  --no-progress

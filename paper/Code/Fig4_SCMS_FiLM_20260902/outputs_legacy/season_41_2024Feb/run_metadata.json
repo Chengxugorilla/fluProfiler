@@ -1,0 +1,16 @@
+{
+  "workflow": "legacy Figure 4",
+  "season": "41",
+  "checkpoint": "/home/chenyh/workspace/fluProfiler/results/H3_HA1_v1.0/20260827_112805/SCMS-FiLM-H3/season/41/subtype/H3N2_seed42/checkpoints/best_model.pth",
+  "candidate_serum_count": 161,
+  "candidate_serum_counts_by_passage": {
+    "<CELL>": 72,
+    "<EGG>": 69,
+    "<BOTH>": 13
+  },
+  "target_virus_count": 172,
+  "pair_count": 27692,
+  "serum_ranking_includes_name": false,
+  "weight_by_collection_date": false,
+  "missing_supplementary": []
+}

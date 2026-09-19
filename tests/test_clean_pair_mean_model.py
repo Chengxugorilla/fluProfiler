@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import torch
+import torch.nn as nn
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(REPO_ROOT / "src"))
+
+from fluprofiler.models.clean_pair_mean_model import (
+    CleanPairMeanBatch,
+    CleanPairMeanConfig,
+    CleanPairMeanModel,
+)
+
+
+def _model() -> CleanPairMeanModel:
+    torch.manual_seed(7)
+    return CleanPairMeanModel(
+        CleanPairMeanConfig(
+            hidden_size=4,
+            token_dim=3,
+            site_hidden_dim=6,
+            pair_dim=2,
+            passage_vocab_size=4,
+            passage_dim=2,
+            metric_dim=3,
+            dropout=0.0,
+        )
+    )
+
+
+def test_has_no_attention_or_na_modules() -> None:
+    model = _model()
+    assert not any(isinstance(module, nn.MultiheadAttention) for module in model.modules())
+    assert all("attention" not in name.lower() for name, _ in model.named_parameters())
+    assert all("na_" not in name.lower() for name, _ in model.named_parameters())
+
+
+def test_identical_aligned_pair_and_passage_has_exact_zero_distance() -> None:
+    model = _model().eval()
+    reference = torch.randn(1, 3, 4)
+    batch = CleanPairMeanBatch(
+        reference_ha=reference,
+        query_ha=reference[:, None, :, :].clone(),
+        reference_ha_mask=torch.ones(1, 3),
+        query_ha_mask=torch.ones(1, 1, 3),
+        serum_passage=torch.tensor([2]),
+        query_passage=torch.tensor([[2]]),
+    )
+    out = model(batch)
+    assert torch.equal(out["mean"], torch.zeros_like(out["mean"]))
+    assert torch.equal(out["pair_representation"], torch.zeros_like(out["pair_representation"]))
+
+
+def test_mean_head_is_signed_and_has_no_bias_that_breaks_zero_anchor() -> None:
+    model = _model()
+    linears = [module for module in model.mean_head.modules() if isinstance(module, nn.Linear)]
+    assert linears
+    assert all(module.bias is None for module in linears)
+    assert linears[-1].out_features == 1
+
+
+def test_masked_padding_does_not_change_prediction() -> None:
+    model = _model().eval()
+    reference = torch.randn(1, 3, 4)
+    query = torch.randn(1, 1, 3, 4)
+    short = CleanPairMeanBatch(
+        reference_ha=reference,
+        query_ha=query,
+        reference_ha_mask=torch.ones(1, 3),
+        query_ha_mask=torch.ones(1, 1, 3),
+    )
+    padded_reference = torch.cat([reference, torch.full((1, 1, 4), 1000.0)], dim=1)
+    padded_query = torch.cat([query, torch.full((1, 1, 1, 4), -1000.0)], dim=2)
+    padded = CleanPairMeanBatch(
+        reference_ha=padded_reference,
+        query_ha=padded_query,
+        reference_ha_mask=torch.tensor([[1.0, 1.0, 1.0, 0.0]]),
+        query_ha_mask=torch.tensor([[[1.0, 1.0, 1.0, 0.0]]]),
+    )
+    assert torch.allclose(model(short)["mean"], model(padded)["mean"], atol=1e-7)
+
+
+def test_huber_and_ranking_losses_are_finite() -> None:
+    model = _model()
+    reference = torch.randn(1, 3, 4)
+    query = torch.randn(1, 2, 3, 4)
+    out = model(
+        CleanPairMeanBatch(
+            reference_ha=reference,
+            query_ha=query,
+            labels=torch.tensor([[1.0, 3.0]]),
+            query_mask=torch.ones(1, 2),
+        )
+    )
+    assert out["mean"].shape == (1, 2)
+    assert "log_var" not in out
+    assert "nll_loss" not in out
+    assert torch.isfinite(out["huber_loss"])
+    assert torch.isfinite(out["rank_loss"])

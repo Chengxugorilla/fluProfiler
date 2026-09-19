@@ -40,7 +40,7 @@ from experiment_tools import (  # noqa: E402
 from data.loaders import load_embedding  # noqa: E402
 from evaluation.metrics import EarlyStopping, print_exams  # noqa: E402
 from models.architectures import fluProfiler_Config, fluProfiler_HA  # noqa: E402
-from fluprofiler.models_v2 import BatchInput, fluProfiler_HA_only_v2  # noqa: E402
+from fluprofiler.models_v2 import BatchInput, fluProfiler_HA_only_distance_v2, fluProfiler_HA_only_v2  # noqa: E402
 from fluprofiler.utils.model_args import build_model_args  # noqa: E402
 
 
@@ -70,7 +70,7 @@ def _split_csv_dir(data_root: str, season: str) -> Path:
 
 
 class HAOnlyDataset(Dataset):
-    def __init__(self, dataframe: pd.DataFrame, add_special_token: bool = True):
+    def __init__(self, dataframe: pd.DataFrame, add_special_token: bool = True, name_vocabs=None):
         self.emb_file_name_a = ("matrix_" + dataframe["seq_id_a"]).tolist()
         self.emb_file_name_c = ("matrix_" + dataframe["seq_id_c"]).tolist()
         if add_special_token:
@@ -88,11 +88,32 @@ class HAOnlyDataset(Dataset):
                 (dataframe["serumPassCat"] + dataframe["virusPassCat"]).tolist()
             )
         self.labels = torch.tensor(dataframe["label"].tolist(), dtype=torch.float32)
+        self.name_vocabs = name_vocabs
+        if name_vocabs is not None:
+            serum_vocab = name_vocabs["serum"]
+            virus_vocab = name_vocabs["virus"]
+            self.serum_name_ids = torch.tensor(
+                dataframe["serumName"].fillna("").astype(str).map(lambda name: serum_vocab.get(name, 0)).tolist(),
+                dtype=torch.long,
+            )
+            self.virus_name_ids = torch.tensor(
+                dataframe["virusName"].fillna("").astype(str).map(lambda name: virus_vocab.get(name, 0)).tolist(),
+                dtype=torch.long,
+            )
 
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, idx):
+        if self.name_vocabs is not None:
+            return (
+                self.emb_file_name_a[idx],
+                self.emb_file_name_c[idx],
+                self.strainPassCats[idx],
+                self.labels[idx],
+                self.serum_name_ids[idx],
+                self.virus_name_ids[idx],
+            )
         return (
             self.emb_file_name_a[idx],
             self.emb_file_name_c[idx],
@@ -143,23 +164,35 @@ def load_dataloaders_and_embedding_keys(
 
 
 def _batch_to_tensors(batch, device, cache):
-    emb_file_name_a, emb_file_name_c, strainPassCats, labels = batch
+    if len(batch) == 6:
+        emb_file_name_a, emb_file_name_c, strainPassCats, labels, serum_name_ids, virus_name_ids = batch
+    else:
+        emb_file_name_a, emb_file_name_c, strainPassCats, labels = batch
+        serum_name_ids = None
+        virus_name_ids = None
     matrices_a_list = [cache.get(key) for key in emb_file_name_a]
     matrices_c_list = [cache.get(key) for key in emb_file_name_c]
     matrixs_a, masks_a = generate_matrix_on_device(matrices_a_list, device=device)
     matrixs_c, masks_c = generate_matrix_on_device(matrices_c_list, device=device)
-    return matrixs_a, masks_a, matrixs_c, masks_c, strainPassCats.to(device), labels.to(device)
+    meta = {}
+    if serum_name_ids is not None and virus_name_ids is not None:
+        meta = {
+            "serum_name_ids": serum_name_ids.to(device),
+            "virus_name_ids": virus_name_ids.to(device),
+        }
+    return matrixs_a, masks_a, matrixs_c, masks_c, strainPassCats.to(device), labels.to(device), meta
 
 
 def train_step(model, batch, device, cache, model_impl: str):
-    matrixs_a, masks_a, matrixs_c, masks_c, strain_pass, labels = _batch_to_tensors(batch, device, cache)
-    if model_impl == "v2":
+    matrixs_a, masks_a, matrixs_c, masks_c, strain_pass, labels, meta = _batch_to_tensors(batch, device, cache)
+    if model_impl in {"v2", "distance"}:
         out = model(
             BatchInput(
                 matrices={"serum_HA": matrixs_a, "virus_HA": matrixs_c},
                 matrix_masks={"serum_HA": masks_a, "virus_HA": masks_c},
                 passage_tokens=strain_pass,
                 labels=labels.view(-1),
+                meta=meta,
             )
         )
         return out.loss
@@ -174,19 +207,22 @@ def train_step(model, batch, device, cache, model_impl: str):
     return loss
 
 
-def evaluate_step(model, dataloader, device, cache, model_impl: str):
+def evaluate_step(model, dataloader, device, cache, model_impl: str, use_name_bias: bool = True):
     model.eval()
     prediction_ls, reference_ls, loss_ls = [], [], []
     with torch.no_grad():
         for batch in dataloader:
-            matrixs_a, masks_a, matrixs_c, masks_c, strain_pass, labels = _batch_to_tensors(batch, device, cache)
-            if model_impl == "v2":
+            matrixs_a, masks_a, matrixs_c, masks_c, strain_pass, labels, meta = _batch_to_tensors(batch, device, cache)
+            if not use_name_bias:
+                meta = {**meta, "use_name_bias": False}
+            if model_impl in {"v2", "distance"}:
                 out = model(
                     BatchInput(
                         matrices={"serum_HA": matrixs_a, "virus_HA": matrixs_c},
                         matrix_masks={"serum_HA": masks_a, "virus_HA": masks_c},
                         passage_tokens=strain_pass,
                         labels=labels.view(-1),
+                        meta=meta,
                     )
                 )
                 loss = out.loss
@@ -319,6 +355,8 @@ def main():
 
     if model_impl == "v2":
         model = fluProfiler_HA_only_v2(config=flu_config, args=flu_args)
+    elif model_impl == "distance":
+        model = fluProfiler_HA_only_distance_v2(config=flu_config, args=flu_args)
     else:
         model = fluProfiler_HA(config=flu_config, args=flu_args)
         if not hasattr(model, "loss_reduction"):

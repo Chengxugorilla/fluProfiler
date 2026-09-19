@@ -35,7 +35,7 @@ class fluProfiler_Dataset(Dataset):
 
 def convert_Pass2tensor(pass_cats):
     result = [
-        item.replace('<cls>', '0').replace('<eos>', '1').replace('<EGG>', '2').replace('<CELL>', '3').replace('<BOTH>', '4').replace('<NONE>', '5')
+        item.replace('<cls>', '0').replace('<eos>', '1').replace('<EGG>', '2').replace('<CELL>', '3').replace('<BOTH>', '4').replace('<NONE>', '5') if isinstance(item, str) else '55555'
         for item in pass_cats
     ]
     result = torch.tensor([[int(number) for number in [char for char in item]] for item in result])

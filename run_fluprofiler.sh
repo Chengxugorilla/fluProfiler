@@ -4,9 +4,9 @@ config=experiments/HA_only/config_v2_ha_only.json
 batch_size=64
 learning_rate=8e-5
 epochs=250
-device=cuda:1
+device=cuda:5
 gpu_cache_gb=20
-sample_limit=128       # -1 表示不截样本；例如 128 用于快速测试
+sample_limit=-1       # -1 表示不截样本；例如 128 用于快速测试
 
 cd ./src
 python -m fluprofiler.cli.dispatch \

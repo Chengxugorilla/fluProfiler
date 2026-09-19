@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, DataLoader
 REPO_ROOT = Path('/home/chenyh/workspace/fluProfiler')
 CHECKPOINT_PATH = REPO_ROOT / 'runs/HA_only/split/HA/20260322_101738__HA_only_cached__pid908736/checkpoints/2026-03-22_21-21-28.pth'
 CSV_PATH = REPO_ROOT / 'data/HA_only/split/test.csv'
-EMBEDDING_ROOT = REPO_ROOT / 'data/reverse_test/embedding'
+EMBEDDING_ROOT = REPO_ROOT / 'data/embedding/files'
 #OUTPUT_PRED_CSV = Path("./test_predictions.csv")
 OUTPUT_PRED_CSV = REPO_ROOT / "runs/MN_as_HI_test/MN_as_HI_predictions.csv"
 OUTPUT_PRED_CSV.parent.mkdir(parents=True, exist_ok=True)

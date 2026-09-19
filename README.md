@@ -20,6 +20,10 @@
   <a href="https://github.com/Chengxugorilla/fluProfiler"><strong>Project Repository</strong></a> · <strong>Citation information to be added after journal decision</strong>
 </p>
 
+## Hosted Web Service
+
+A public fluProfiler web service is being prepared. The production URL and server endpoint will be announced after the required ICP filing is approved.
+
 ## Highlights
 
 - `115,927` HI measurements curated from `44` Francis Crick surveillance reports spanning `2003` to `2025SH`
@@ -66,7 +70,7 @@
 | `fluAgPredictor` | Sequence-based antigenic distance prediction and generalization benchmarking | `experiments/HA_only/train_v2_ha_only.py`, `experiments/HANA/train_v2_hana.py`, `src/fluprofiler/cli/dispatch.py` |
 | `fluVacSelector` | Prospective vaccine candidate ranking from predicted antigenic coverage | Preprint figures and downstream analysis notebooks/scripts in `paper/` and `experiments/` |
 | `fluAgEnhancer` | Diversity-driven active learning for HI prioritization and model updating | `experiments/active_learning/run_active_learning.py`, `src/fluprofiler/active_learning/` |
-| `Split builder` | Standalone generation of `titer`, `strain`, and `serum` splits | `experiments/tools/build_splits.py`, `run_dataset_split.sh` |
+| `Data preparation` | Dataset-scoped conversion from raw CSVs to processed source files and `titer` / `strain` / `serum` splits | `scripts/prepare_dataset_processed.py`, `scripts/prepare_dataset_splits.py` |
 | `Legacy / archived experiments` | Historical exploratory runs retained for reference, not the main recommended path | `src/deprecated/`, parts of `experiments/reverse_tests/` |
 
 ## Project Map
@@ -80,9 +84,11 @@
 | `src/fluprofiler/models_v2/` | Newer v2 model I/O contracts and streamlined HA / HANA implementations |
 | `src/fluprofiler/active_learning/` | Modular active-learning utilities, strategies, and loop abstractions |
 | `experiments/active_learning/` | Executable active-learning experiment scripts and notebooks |
-| `experiments/tools/build_splits.py` | Standalone split builder for paper-aligned `titer`, `strain`, and `serum` protocols |
-| `data/raw/` | Versioned raw dataset metadata and protocol-oriented raw dataset layout |
-| `data/splits/` | Generated split manifests and split outputs used for reproducible partitioning |
+| `scripts/prepare_dataset_processed.py` | Dataset-scoped raw CSV normalization, sequence ID assignment, embedding registry update, and processed `source.csv` generation |
+| `scripts/prepare_dataset_splits.py` | Dataset-scoped split generation from `processed/source.csv` into `splited/` |
+| `experiments/tools/build_splits.py` | Lower-level split builder reused by the script entrypoint |
+| `data/dataset/` | Dataset-scoped raw, processed, and split outputs |
+| `data/embedding/` | Global sequence registry and embedding tensor store |
 | `runs/` | Stored run artifacts, metadata, and TensorBoard logs from previous experiments |
 | `paper/` | Figure-generation notebooks, paper assets, and supplementary materials |
 | `src/deprecated/` | Archived historical experiments retained for provenance and reference |
@@ -109,7 +115,7 @@ As a result, the most reliable immediate use of this repository is:
 - The repository does **not** currently include a complete, one-command reproducibility environment specification such as `requirements.txt`, `pyproject.toml`, or a frozen conda environment file.
 - The repository also does **not** currently include all runtime training assets needed for direct execution, including embedding `.pt` files, the full split CSV payloads, or `configs/args.pkl`.
 - Some paths inside configs, manifests, and historical run metadata still reflect the original local research environment used during development and benchmarking.
-- The `data/splits/` tree provides protocol and manifest examples that document how dataset partitioning was performed, even when the full underlying raw data are not mirrored in the repository.
+- The `data/dataset/<dataset>/splited/` trees provide protocol and manifest examples that document how dataset partitioning was performed, even when the full underlying raw data are not mirrored in the repository.
 - The preprint states that processed matched datasets, source data, and code are available through this repository and/or supplementary materials; readers should interpret the GitHub repository as the code-centered companion rather than a fully self-contained binary release.
 - Sequence data provenance is tied to GISAID-derived records and Francis Crick HI surveillance reports, so downstream redistribution and reconstruction may depend on the applicable source-data usage terms.
 
@@ -146,18 +152,26 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_coun
 
 ## Required Data Layout
 
-The training flow expects:
+The current data flow uses one global embedding store and one directory per dataset:
 
-- Split CSV files: `train.csv`, `test.csv`
-- Embedding tensors: `matrix_<seq_id>.pt`
-- Reverse-test style directories under `data/reverse_test/`
+```text
+data/
+├── embedding/
+│   ├── registry/
+│   │   ├── sequences.csv
+│   │   └── pending/
+│   └── files/
+│       └── matrix_<seq_id>.pt
+└── dataset/
+    └── H1H3_new/
+        ├── raw/
+        ├── processed/
+        └── splited/
+```
 
-Typical paths used by configs:
+Training uses split CSV files from `data/dataset/<dataset>/splited/...` and embedding tensors from `data/embedding/files/matrix_<seq_id>.pt`.
 
-- CSV root: `data/reverse_test/processed/<season>/`
-- Embedding root: `data/reverse_test/embedding/`
-
-Check and edit the config file before running:
+Check and edit config paths before running:
 
 - `experiments/HA_only/config_v2_ha_only.json`
 - `experiments/HANA/config_v2_hana.json`
@@ -220,61 +234,87 @@ Run artifacts are saved under `runs/`, including:
 - Checkpoints
 - Run logs / metadata
 
-## Dataset Split Tool (Independent)
+## Raw To Splited Data Flow
 
-This repository includes a standalone split builder for the three paper split modes:
+Put each dataset under `data/dataset/<dataset_name>/`. Raw CSV files go in `raw/`; generated files go to `processed/` and `splited/`.
+
+```text
+data/dataset/H1H3_new/
+├── raw/
+│   ├── data4model(Crick-H1N1).csv
+│   └── data4model(Crick-H3N2).csv
+├── processed/
+│   ├── source.csv
+│   └── qc_summary.json
+└── splited/
+    └── v1/<split_id>/{titer,strain,serum}/
+        ├── train.csv
+        ├── valid.csv
+        ├── test.csv
+        └── manifest.json
+```
+
+### Step 1: Raw To Processed
+
+Run:
+
+```bash
+python scripts/prepare_dataset_processed.py --dataset-dir data/dataset/H1H3_new
+```
+
+This reads all raw CSV files under `raw/`, validates required columns, converts `label` to numeric, removes rows missing `label` or any of `seq_a`, `seq_b`, `seq_c`, `seq_d`, normalizes passage categories, assigns `seq_id_a` / `seq_id_b` / `seq_id_c` / `seq_id_d`, updates `data/embedding/registry/sequences.csv`, and writes:
+
+```text
+data/dataset/H1H3_new/processed/source.csv
+data/dataset/H1H3_new/processed/qc_summary.json
+```
+
+`qc_summary.json` records each processing step, including rows before/after, deleted rows, passage normalization counts, new sequence counts, and missing embedding counts. If any used sequence has no embedding file, one timestamped FASTA is written to:
+
+```text
+data/embedding/registry/pending/<timestamp>.fasta
+```
+
+The pending FASTA is intended to be sent to the embedding pipeline. After the corresponding `matrix_<seq_id>.pt` files are generated under `data/embedding/files/`, rerun the processing step if needed.
+
+### Step 2: Processed To Splited
+
+Run:
+
+```bash
+python scripts/prepare_dataset_splits.py --dataset-dir data/dataset/H1H3_new
+```
+
+This reads `processed/source.csv` and generates three split modes:
 
 - `titer`  (row-level random split)
 - `strain` (group split by strain key, default `seq_id_c`)
 - `serum`  (group split by serum key, default `seq_id_a`)
 
-Script:
-
-- `experiments/tools/build_splits.py`
-
-### Recommended Raw Data Protocol
-
-Use one directory per raw dataset version:
-
-```text
-data/raw/
-└── r2026_03_27_mix_h1h3/
-    ├── source.csv
-    └── dataset_meta.json   # auto-created/updated by script
-```
-
-Run split generation from that raw version directory:
+Default split settings are `seed=42`, `test_ratio=0.1`, `valid_ratio=0.1`, `group_valid=false`, and `split_modes=titer,strain,serum`. To make the split reproducible by name, pass `--split-id`:
 
 ```bash
-python experiments/tools/build_splits.py \
-  --raw-version-dir data/raw/r2026_03_27_mix_h1h3 \
-  --dataset-name hi_mix_h1h3 \
-  --dataset-description "Merged H1N1 and H3N2 dataset" \
-  --protocol-version v1 \
-  --seed 42 \
-  --test-ratio 0.2 \
-  --valid-ratio 0.1 \
-  --strain-col seq_id_c \
-  --serum-col seq_id_a \
-  --split-modes titer,strain,serum
+python scripts/prepare_dataset_splits.py \
+  --dataset-dir data/dataset/H1H3_new \
+  --split-id H1H3_new__seed42__tr0.80_va0.10_te0.10
 ```
 
 Generated files:
 
 ```text
-data/splits/v1/hi_mix_h1h3/r2026_03_27_mix_h1h3/
-├── titer/<split_id>/{train.csv,valid.csv,test.csv,manifest.json}
-├── strain/<split_id>/{train.csv,valid.csv,test.csv,manifest.json}
-└── serum/<split_id>/{train.csv,valid.csv,test.csv,manifest.json}
+data/dataset/H1H3_new/splited/v1/<split_id>/
+├── titer/{train.csv,valid.csv,test.csv,manifest.json}
+├── strain/{train.csv,valid.csv,test.csv,manifest.json}
+└── serum/{train.csv,valid.csv,test.csv,manifest.json}
 ```
 
-`manifest.json` records split parameters, source checksum, dataset metadata, and overlap/leakage checks.
+Each `manifest.json` records split parameters, source checksum, dataset metadata, row counts, duplicate aggregation reports, overlap checks, and group leakage checks.
 
 Notes:
 
-- This utility is standalone and is **not** wired into training entrypoints.
-- You can still use `--input-csv` + `--dataset-version-id` directly if needed.
-- Use `--id-col` if your input has a stable unique row identifier.
+- `scripts/prepare_dataset_splits.py` is the recommended entrypoint for the new data layout.
+- `experiments/tools/build_splits.py` remains available as the lower-level standalone split builder.
+- Use `--id-col` if `processed/source.csv` has a stable unique row identifier.
 - `--split-modes` controls which splits are generated (for example: `titer,serum`).
 
 ## Troubleshooting
